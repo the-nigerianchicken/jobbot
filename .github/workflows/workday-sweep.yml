@@ -36,6 +36,10 @@ jobs:
       - name: Point jobbot at them
         if: vars.DATA_REPO != ''
         run: |
+          if [ ! -f private/criteria.yaml ]; then
+            echo "::error::DATA_TOKEN cannot read ${{ vars.DATA_REPO }}. It needs contents and issues"                  "read/write on that repository, with the new account as the resource owner."
+            exit 1
+          fi
           echo "JOBBOT_PRIVATE=$GITHUB_WORKSPACE/private" >> "$GITHUB_ENV"
           echo "JOBBOT_REPO=${{ vars.DATA_REPO }}" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
