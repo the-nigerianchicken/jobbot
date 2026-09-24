@@ -63,12 +63,19 @@ jobs:
         id: pick
         run: python -m jobbot.screen plan --limit "${{ inputs.limit || '40' }}"
 
-      # The action refuses an empty token, so this only runs when there is one.
-      - name: Read the token
+      # The same check the resume runs use. A token copied from a wrapped
+      # terminal line carries whitespace, and passing it raw fails before any
+      # model call is made - which reads as a refused model rather than a
+      # refused token, because the cost comes back zero either way.
+      - name: Check Claude token
         if: steps.pick.outputs.count != '0'
         env:
-          T: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: echo "CLAUDE_TOKEN=$T" >> "$GITHUB_ENV"
+          RAW: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          T="$(printf '%s' "$RAW" | tr -d '[:space:]')"
+          echo "::add-mask::$T"
+          [[ "$T" == sk-ant-oat* ]] || { echo "::error::CLAUDE_CODE_OAUTH_TOKEN should start with sk-ant-oat"; exit 1; }
+          echo "CLAUDE_TOKEN=$T" >> "$GITHUB_ENV"
 
       - name: Judge them
         if: steps.pick.outputs.count != '0'
@@ -78,9 +85,8 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           allowed_bots: "github-actions[bot],github-actions"
           # The lightest model there is. This is one closed question about one
-          # paragraph, asked a few times a day.
-          # The alias, not a dated id: a subscription token would not take
-          # "claude-haiku-4-5-20251001" and failed before making any call.
+          # paragraph, asked a few times a day. By alias, which the CLI resolves
+          # to whichever Haiku is current.
           claude_args: >-
             --model haiku
             --max-turns 4
