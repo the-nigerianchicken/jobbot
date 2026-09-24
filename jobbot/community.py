@@ -178,10 +178,42 @@ def describe(url, get=None, get_text=None):
     try:
         import requests
         r = requests.get(url, timeout=20, headers={"user-agent": "Mozilla/5.0 (jobbot)"})
-        text = sources._strip(re.sub(r"(?is)<(script|style|nav|header|footer)[^>]*>.*?</\1>", " ", r.text))
-        return text[:15000] if reads_like_a_job(text) else ""
+        return page_text(r.text)
     except Exception:
         return ""
+
+
+# Everything around a posting that is not the posting: menus, cookie banners,
+# "related jobs", the footer. Stripped before he ever reads it.
+FURNITURE = re.compile(r"(?is)<(script|style|nav|header|footer|aside|form|svg|button|select)[^>]*>.*?</\1>")
+CHROME = re.compile(r"(?i)^(cookie|privacy|terms|sign in|log ?in|apply now|share this|follow us|back to|"
+                    r"all jobs|similar jobs|related jobs|skip to|menu|search|filter|©|copyright)\b")
+
+
+def page_text(html):
+    """The readable part of a careers page.
+
+    A page scraped whole gives him its menus as bullets with nothing in them -
+    one posting arrived with 175 (2026-09-24). Only the lines that read like a
+    posting survive.
+    """
+    from . import sources
+    body = re.search(r"(?is)<main[^>]*>(.*?)</main>|<article[^>]*>(.*?)</article>", html or "")
+    if body:
+        html = next(g for g in body.groups() if g)
+    text = sources._strip(FURNITURE.sub(" ", html or ""))
+    out, seen = [], None
+    for line in text.split("\n"):
+        line = line.strip()
+        bare = re.sub(r"^[\u2022\-\*\u00b7\u25aa\u25e6]\s*", "", line).strip()
+        if not bare or len(bare) < 2 or CHROME.match(bare):
+            continue
+        if bare == seen:                      # the same link repeated down a menu
+            continue
+        seen = bare
+        out.append(("- " + bare) if line != bare else bare)
+    text = "\n".join(out)
+    return text[:15000] if reads_like_a_job(text) else ""
 
 
 # Words any job description uses. A page drawn by JavaScript strips down to ids

@@ -76,7 +76,37 @@ export default {
       return json({ error: String((err && err.message) || err) }, 500);
     }
   },
+
+  // Every half hour, whether jobbot is alive. On 2026-09-23 it was dead for
+  // seven hours and nothing said so; now his phone does.
+  async scheduled(event, env, ctx) {
+    const later = (p) => { if (ctx && ctx.waitUntil) ctx.waitUntil(p.catch(() => {})); return p; };
+    await health({ ...env, later });
+  },
 };
+
+// Alive means: the last sweep succeeded, and one has run in the last two hours.
+async function health(env) {
+  const [beat, was] = await Promise.all([
+    one(env, `SELECT value FROM meta WHERE key = 'checked'`),
+    one(env, `SELECT value FROM meta WHERE key = 'health'`),
+  ]);
+  const runs = await askGitHub(env).catch(() => []);
+  const broken = runs.find((r) => r.kind === "broken");
+  const since = beat ? Date.now() - new Date(beat.value).getTime() : null;
+  const state = broken ? "failed" : since !== null && since > 2 * 3600e3 ? "stale" : "ok";
+  const said = state === "failed" ? "jobbot's last check failed. Nothing new is coming in."
+    : state === "stale" ? "jobbot has not checked the boards in over two hours."
+    : "";
+  if ((was && was.value) === state) return state;          // already said, or still fine
+  await run(env, `INSERT INTO meta (key, value, at) VALUES ('health', ?1, ?2)
+                  ON CONFLICT(key) DO UPDATE SET value = excluded.value, at = excluded.at`, state, now());
+  if (state === "ok") return state;
+  await run(env, `INSERT INTO meta (key, value, at) VALUES ('health_said', ?1, ?2)
+                  ON CONFLICT(key) DO UPDATE SET value = excluded.value, at = excluded.at`, said, now());
+  await wake(env);
+  return state;
+}
 
 /* ---------------------------------------------------------------- auth --- */
 
@@ -732,6 +762,11 @@ async function ingest(request, env) {
       }
     }
   }
+  // A sweep that reports in is proof jobbot is alive again.
+  if (b.jobs && b.jobs.length) {
+    await run(env, `INSERT INTO meta (key, value, at) VALUES ('health', 'ok', ?1)
+                    ON CONFLICT(key) DO UPDATE SET value = 'ok', at = excluded.at`, at);
+  }
   if (b.checked_at) {
     await run(env, `INSERT INTO meta (key, value, at) VALUES ('checked', ?1, ?1)
                     ON CONFLICT(key) DO UPDATE SET value = excluded.value, at = excluded.at`,
@@ -1059,6 +1094,11 @@ async function announce(env, jobs) {
 // What the phone should show, built when it asks - never sent over the wire
 // with the push itself.
 async function pushLatest(env) {
+  const hurt = await one(env, `SELECT value, at FROM meta WHERE key = 'health'`);
+  if (hurt && hurt.value !== "ok") {
+    const said = await one(env, `SELECT value FROM meta WHERE key = 'health_said'`);
+    return json({ title: "jobbot needs a look", body: (said && said.value) || "Something stopped working.", uid: null });
+  }
   const since = new Date(Date.now() - 6 * 3600e3).toISOString();
   const rows = await all(env, `SELECT p.uid, p.state, j.company, j.title, j.note FROM push_sent p
                                JOIN jobs j ON j.uid = p.uid WHERE p.at >= ?1 ORDER BY p.at DESC LIMIT 8`, since);

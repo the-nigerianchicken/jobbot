@@ -76,5 +76,17 @@ check("an Ashby posting's text comes from Ashby's board API",
                          get=lambda u: board if "posting-api/job-board/withpace" in u else None)
       == "Build agents with Python.")
 
+# A careers page read whole gives its menus as bullets with nothing in them.
+filler = "You will build services with Python and Go on the platform team, write tests and ship. " * 12
+page = ("<html><nav><ul><li><a>Jobs</a></li><li><a>About</a></li><li><a>About</a></li></ul></nav>"
+        "<main><h1>Software Engineer Intern</h1><p>" + filler + "</p>"
+        "<ul><li>Qualifications: pursuing a degree</li><li>Responsibilities: ship code</li></ul></main>"
+        "<footer>Cookie policy</footer></html>")
+text = community.page_text(page)
+check("the posting is kept", "Qualifications: pursuing a degree" in text and "Software Engineer Intern" in text)
+check("the furniture is not", "Jobs" not in text and "Cookie" not in text)
+check("no bullet arrives empty", not any(l.strip() in ("-", "•") for l in text.splitlines()))
+check("a page that is not a posting is refused", community.page_text("<main><p>Hello.</p></main>") == "")
+
 print()
 sys.exit(1 if fails else 0)

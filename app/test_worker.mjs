@@ -407,6 +407,52 @@ const swjs = await (await req("/sw.js")).text();
 check("the service worker is served from the root", swjs.includes("notificationclick"));
 globalThis.fetch = realFetch;
 
+/* ----------------------------------------------------------- watchdog --- */
+
+const beat = (mins) => env.DB.prepare("INSERT INTO meta (key, value, at) VALUES ('checked', ?1, ?1) " +
+  "ON CONFLICT(key) DO UPDATE SET value = excluded.value, at = excluded.at").bind(iso(mins / 1440)).run();
+const asGitHub = (runs) => {
+  globalThis.fetch = async (url, init = {}) => {
+    if (String(url).includes("/actions/runs?status=in_progress"))
+      return new Response(JSON.stringify({ workflow_runs: [] }), { status: 200 });
+    if (String(url).includes("/actions/workflows/watch.yml/runs"))
+      return new Response(JSON.stringify({ workflow_runs: runs }), { status: 200 });
+    if (String(url).includes("push.example")) { pushes.push({ url: String(url) }); return new Response("", { status: 201 }); }
+    return realFetch(url, init);
+  };
+};
+await body("/api/push", "POST", { subscription: { endpoint: "https://push.example/ok2", keys: {} } }, as);
+await env.DB.prepare("DELETE FROM meta WHERE key IN ('runs','health','health_said')").bind().run();
+
+await beat(5);
+asGitHub([{ conclusion: "success", created_at: iso(0.2), html_url: "https://x" }]);
+let quiet = pushes.length;
+await worker.scheduled({}, env, { waitUntil: () => {} });
+check("a healthy jobbot says nothing", pushes.length === quiet);
+
+await env.DB.prepare("DELETE FROM meta WHERE key = 'runs'").bind().run();
+asGitHub([{ conclusion: "failure", created_at: iso(0.2), html_url: "https://x" }]);
+await worker.scheduled({}, env, { waitUntil: () => {} });
+check("a broken one tells his phone", pushes.length > quiet);
+const told = await (await get("/api/push?latest=1", as)).json();
+check("and says what is wrong", /last check failed/.test(told.body), JSON.stringify(told));
+quiet = pushes.length;
+await worker.scheduled({}, env, { waitUntil: () => {} });
+check("it does not say it twice", pushes.length === quiet);
+
+await env.DB.prepare("DELETE FROM meta WHERE key = 'runs'").bind().run();
+asGitHub([{ conclusion: "success", created_at: iso(0.2), html_url: "https://x" }]);
+await beat(60 * 5);   // five hours without a sweep
+await worker.scheduled({}, env, { waitUntil: () => {} });
+check("a sweep that never came is also worth saying",
+  /not checked the boards/.test((await (await get("/api/push?latest=1", as)).json()).body));
+await body("/api/ingest", "POST", { jobs: [
+  { uid: "alive", company: "co", title: "Software Engineer Intern", state: "new", seen_at: iso(0.1) },
+], checked_at: iso(0.01) }, robot);
+check("a sweep that lands puts it back on its feet",
+  (await env.DB.prepare("SELECT value FROM meta WHERE key = 'health'").bind().first()).value === "ok");
+globalThis.fetch = realFetch;
+
 /* -------------------------------------------------------------- usage --- */
 
 await body("/api/usage", "POST", { counts: { "action: build": 2, "open a job": 5, "": 3 } }, as);

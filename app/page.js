@@ -647,15 +647,23 @@ function unflatten(text) {
 // The description as paragraphs and lists, the way the company wrote it.
 function posting(text) {
   const lines = unflatten(String(text || "")).split("\n").map((l) => l.trim());
-  let html = "", list = false;
+  let html = "", list = false, last = "";
   for (const line of lines) {
     if (!line) { continue; }
     const bullet = /^[•\-\*·▪◦]\s*/.test(line);
     if (bullet) {
+      // A page scraped from a careers site carries its navigation as bullets
+      // with no text - Waymo's posting arrived with 175 of them.
+      const said = line.replace(/^[•\-\*·▪◦]\s*/, "").trim();
+      if (!said) continue;
+      if (said === last) continue;
+      last = said;
       if (!list) { html += "<ul>"; list = true; }
-      html += "<li>" + esc(line.replace(/^[•\-\*·▪◦]\s*/, "")) + "</li>";
+      html += "<li>" + esc(said) + "</li>";
       continue;
     }
+    if (line === last) continue;
+    last = line;
     if (list) { html += "</ul>"; list = false; }
     const heading = line.length < 60 && !/[.,;]$/.test(line) && /^[A-Z]/.test(line) && line.split(" ").length <= 8;
     html += heading ? '<div class="h">' + esc(line) + "</div>" : "<p>" + esc(line) + "</p>";
