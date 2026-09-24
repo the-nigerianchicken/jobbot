@@ -18,3 +18,4 @@ app/live.check.html
 resumes/**/brief.md
 resumes/**/answers.json
 data/filtered.json
+tools/.split/
