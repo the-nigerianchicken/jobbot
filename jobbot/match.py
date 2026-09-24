@@ -73,6 +73,12 @@ def near_miss(posting, why, crit, days=7):
     """
     if not why or why.startswith(("seniority", "title carries no")):
         return False
+    # A posting a model read and turned away is always worth showing: it was on
+    # his board until something judged him ineligible, and if that judgement is
+    # wrong the only way he can find out is by seeing it. Age and a missing
+    # timestamp are about board noise, which this is not.
+    if why.startswith("not eligible"):
+        return True
     age = posting.age_hours
     if age is None or age > days * 24:
         return False
