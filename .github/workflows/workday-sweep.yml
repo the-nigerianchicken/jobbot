@@ -1,0 +1,61 @@
+name: workday-sweep
+
+# Workday is ~1,200 tenants and one request each, about 6-7 minutes, so watch
+# only polls the hot ones (targets and tenants that have produced a match).
+# This sweeps every tenant once a day so a new employer cannot stay invisible -
+# the failure that hid Amazon until 2026-09-18.
+on:
+  schedule:
+    - cron: "0 10 * * *"      # 06:00 Toronto, before the morning digest
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: jobbot-watch          # never runs beside a normal watch
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      # His criteria, targets, profile, answers, resumes and jobbot's state live
+      # in a private repo, so this one can be public. Without DATA_REPO set,
+      # everything is read from this checkout as before.
+      - name: Get his things
+        if: vars.DATA_REPO != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.DATA_REPO }}
+          token: ${{ secrets.DATA_TOKEN }}
+          path: private
+      - name: Point jobbot at them
+        if: vars.DATA_REPO != ''
+        run: |
+          echo "JOBBOT_PRIVATE=$GITHUB_WORKSPACE/private" >> "$GITHUB_ENV"
+          echo "JOBBOT_REPO=${{ vars.DATA_REPO }}" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Poll every board including all Workday tenants
+        run: python -m jobbot.watch watch --workday all --json-out data/queue.json | tee run.log
+      - name: Commit state
+        run: |
+          python -m jobbot.gitsync "workday sweep: $(date -u +%Y-%m-%dT%H:%MZ)" \
+            data/seen.json data/registry.json data/queue.json data/pending.json
+      - name: Start resume builds
+        env:
+          GH_TOKEN: ${{ secrets.DATA_TOKEN || secrets.GITHUB_TOKEN }}
+          HAS_CLAUDE: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: |
+          if [ "$HAS_CLAUDE" != "true" ]; then echo "no Claude token - skipping"; exit 0; fi
+          open=$(python -m jobbot.tailor status --open-count)
+          running=$(gh run list -w resume.yml --json status --jq '[.[] | select(.status != "completed")] | length')
+          echo "open postings: $open, resume runs active: $running"
+          if [ "$open" != "0" ] && [ "$running" = "0" ]; then gh workflow run resume.yml; fi

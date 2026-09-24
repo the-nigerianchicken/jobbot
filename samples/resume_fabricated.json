@@ -1,0 +1,20 @@
+{
+  "identity": {"name": "the user", "email": "you@example.com"},
+  "sections": [
+    {
+      "entry_id": "exp_northwind",
+      "employer": "Northwind Financial",
+      "title": "Senior AI Engineer Intern",
+      "bullets": [
+        {"text": "Led a team of 4 engineers to architect a RAG pipeline in Python and FastAPI, cutting latency by 85%.",
+         "source_ids": ["f_man_1"]},
+        {"text": "Deployed the embedding cache on Kubernetes across 12 nodes, reducing lookup latency to 400ms.",
+         "source_ids": ["f_man_2"]},
+        {"text": "Improved model accuracy by 30% through prompt optimization.",
+         "source_ids": []},
+        {"text": "Built a full-stack React dashboard for 200 monthly active users.",
+         "source_ids": ["f_proj_1"]}
+      ]
+    }
+  ]
+}

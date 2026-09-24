@@ -1,0 +1,23 @@
+{
+  "identity": {"name": "the user", "email": "you@example.com"},
+  "sections": [
+    {
+      "entry_id": "exp_northwind",
+      "employer": "Northwind",
+      "title": "AI Engineer Intern",
+      "bullets": [
+        {"text": "Built a retrieval-augmented generation pipeline over internal policy documents in Python and FastAPI, using pgvector for embedding search.",
+         "source_ids": ["f_man_1"]},
+        {"text": "Cut median document lookup latency from 1.8s to 400ms by introducing a Redis embedding cache.",
+         "source_ids": ["f_man_2"]}
+      ]
+    },
+    {
+      "entry_id": "proj_example",
+      "bullets": [
+        {"text": "Shipped a full-stack React and Node application serving 200 monthly active users.",
+         "source_ids": ["f_proj_1"]}
+      ]
+    }
+  ]
+}

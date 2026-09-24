@@ -1,0 +1,20 @@
+﻿__pycache__/
+*.pyc
+.venv/
+data/profile.json
+data/local/
+data/batch.txt
+
+# never commit local secret hand-offs
+app/.token.txt
+app/.passcode.txt
+app/.ingest.txt
+app/seed.sql
+app/.dev.vars
+app/node_modules/
+app/.wrangler/
+app/preview.log
+app/live.check.html
+resumes/**/brief.md
+resumes/**/answers.json
+data/filtered.json

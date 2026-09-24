@@ -1,0 +1,115 @@
+name: watch
+
+# Runs on GitHub's runners, NOT in a Claude sandbox - see README "Where this runs".
+# Cron floor on Actions is 5 minutes and scheduled runs are commonly delayed
+# under load, so treat the interval as approximate.
+#
+# Minutes budget (GitHub Free, private repo: 2,000/month). Measured 2026-09-18:
+# a watch run costs ~1.1 min, and every-15-minutes alone projected to 1,650.
+# With Workday's hot tenants added, this is every 30 min over 11-23 UTC = 26
+# runs/day (~40 min), plus the daily workday-sweep (~7), digest, reseed and
+# resume runs. Recount before adding hours or jobs.
+# Two sweeps, and both were halved on 2026-09-23 after the month's 2,000 free
+# minutes ran out (59 watch runs and 39 resume runs in one day):
+#   :00 :30        the ~80 target companies (and Amazon), about 45 seconds
+#   :07 every 2h   all 1,079 boards
+# "Check now" in the app starts a sweep whenever he wants one sooner.
+on:
+  schedule:
+    - cron: "*/30 11-23 * * *"
+    - cron: "7 11-23/2 * * *"
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: "Only target companies and Amazon (fast)"
+        type: boolean
+        default: false
+      test_alert:
+        description: "Fail the Notify step on purpose, to check the alert email arrives"
+        type: boolean
+        default: false
+      backlog_tiers:
+        description: "Also queue all current matches in these tiers for resumes (e.g. '1')"
+        default: ""
+      backlog_hours:
+        description: "Also queue all current matches posted within this many hours (e.g. '24')"
+        default: ""
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: jobbot-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # His criteria, targets, profile, answers, resumes and jobbot's state live
+      # in a private repo, so this one can be public. Without DATA_REPO set,
+      # everything is read from this checkout as before.
+      - name: Get his things
+        if: vars.DATA_REPO != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.DATA_REPO }}
+          token: ${{ secrets.DATA_TOKEN }}
+          path: private
+      - name: Point jobbot at them
+        if: vars.DATA_REPO != ''
+        run: |
+          echo "JOBBOT_PRIVATE=$GITHUB_WORKSPACE/private" >> "$GITHUB_ENV"
+          echo "JOBBOT_REPO=${{ vars.DATA_REPO }}" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Poll boards
+        run: |
+          python -m jobbot.watch watch --json-out data/queue.json ${{ (github.event.schedule == '*/15 11-23 * * *' || inputs.targets) && '--targets' || '' }}             ${{ inputs.backlog_tiers && format('--backlog-tiers {0}', inputs.backlog_tiers) || '' }}             ${{ inputs.backlog_hours && format('--backlog-hours {0}', inputs.backlog_hours) || '' }} | tee run.log
+      - name: Commit state
+        run: |
+          git config user.name  "jobbot"
+          git config user.email "jobbot@users.noreply.github.com"
+          python -m jobbot.gitsync "watch: $(date -u +%Y-%m-%dT%H:%MZ)"             data/seen.json data/registry.json data/queue.json data/pending.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: run-log
+          path: run.log
+      # What he tapped while this was running, so a request made a minute ago
+      # starts its resume now rather than half an hour from now.
+      - name: Take his requests
+        env:
+          APP_URL: ${{ secrets.APP_URL || vars.APP_URL }}
+          APP_TOKEN: ${{ secrets.APP_TOKEN }}
+        run: python -m jobbot.appsync pull
+
+      # Only for resumes he has asked for: `resumes.on_request` in criteria.yaml
+      # means open-count is what he tapped Apply on, not everything found.
+      - name: Start requested resumes
+        env:
+          GH_TOKEN: ${{ secrets.DATA_TOKEN || secrets.GITHUB_TOKEN }}
+          HAS_CLAUDE: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: |
+          if [ "$HAS_CLAUDE" != "true" ]; then echo "CLAUDE_CODE_OAUTH_TOKEN not set - skipping"; exit 0; fi
+          open=$(python -m jobbot.tailor status --open-count)
+          running=$(gh run list -w resume.yml --json status --jq '[.[] | select(.status != "completed")] | length')
+          echo "open postings: $open, resume runs active: $running"
+          if [ "$open" != "0" ] && [ "$running" = "0" ]; then gh workflow run resume.yml; fi
+      # Last on purpose: exits nonzero on a tier-1/2 match so GitHub notifies,
+      # after state is already committed.
+      - name: Notify
+        run: python -m jobbot.notify data/queue.json ${{ inputs.test_alert && '--test' || '' }}
+
+      # The app is what he looks at: tell it what happened, and pick up
+      # anything he tapped while this was running.
+      - name: Sync the app
+        if: always()
+        env:
+          APP_URL: ${{ secrets.APP_URL || vars.APP_URL }}
+          APP_TOKEN: ${{ secrets.APP_TOKEN }}
+        run: python -m jobbot.appsync push

@@ -1,0 +1,19 @@
+{
+  "identity": {"name": "the user"},
+  "sections": [
+    {
+      "entry_id": "exp_northwind",
+      "bullets": [
+        {"text": "Built a RAG pipeline in Python and FastAPI, deployed on Azure with Docker.", "source_ids": ["f_man_1"]},
+        {"text": "Reduced median lookup latency from 400ms to 1.8s using a Redis cache.", "source_ids": ["f_man_2"]}
+      ]
+    },
+    {
+      "entry_id": "proj_example",
+      "bullets": [
+        {"text": "Scaled a React and Node platform to 200,000 monthly active users.", "source_ids": ["f_proj_1"]},
+        {"text": "Owned the full architecture end to end.", "source_ids": ["f_proj_1"]}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+name: reseed-registry
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  reseed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # His criteria, targets, profile, answers, resumes and jobbot's state live
+      # in a private repo, so this one can be public. Without DATA_REPO set,
+      # everything is read from this checkout as before.
+      - name: Get his things
+        if: vars.DATA_REPO != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.DATA_REPO }}
+          token: ${{ secrets.DATA_TOKEN }}
+          path: private
+      - name: Point jobbot at them
+        if: vars.DATA_REPO != ''
+        run: |
+          echo "JOBBOT_PRIVATE=$GITHUB_WORKSPACE/private" >> "$GITHUB_ENV"
+          echo "JOBBOT_REPO=${{ vars.DATA_REPO }}" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11", cache: pip}
+      - run: pip install -r requirements.txt
+      - run: python -m jobbot.watch seed
+      - run: |
+          git config user.name jobbot
+          git config user.email jobbot@users.noreply.github.com
+          git add data/registry.json
+          git diff --staged --quiet || git commit -m "reseed registry"
+          git push

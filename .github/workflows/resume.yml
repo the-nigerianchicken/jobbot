@@ -1,0 +1,268 @@
+name: resume
+
+# Writes a tailored resume for every posting waiting, one runner each, side by
+# side: five resumes take about as long as one (2026-09-22 - they used to queue
+# behind each other inside a single run). Claude only writes resume.json and
+# answers.json; `jobbot.tailor build` runs both verifiers and renders the PDF.
+#
+# Needs repo secret CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`).
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Max resumes this run"
+        default: "6"
+      continue:
+        description: "Start another run while postings are still waiting"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  issues: write
+  actions: write
+  id-token: write
+
+concurrency:
+  group: jobbot-resume
+  cancel-in-progress: false
+
+jobs:
+  # What he has asked for, as one uid per runner.
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      uids: ${{ steps.plan.outputs.uids }}
+      count: ${{ steps.plan.outputs.count }}
+      model: ${{ steps.plan.outputs.model }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      # His criteria, targets, profile, answers, resumes and jobbot's state live
+      # in a private repo, so this one can be public. Without DATA_REPO set,
+      # everything is read from this checkout as before.
+      - name: Get his things
+        if: vars.DATA_REPO != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.DATA_REPO }}
+          token: ${{ secrets.DATA_TOKEN }}
+          path: private
+      - name: Point jobbot at them
+        if: vars.DATA_REPO != ''
+        run: |
+          echo "JOBBOT_PRIVATE=$GITHUB_WORKSPACE/private" >> "$GITHUB_ENV"
+          echo "JOBBOT_REPO=${{ vars.DATA_REPO }}" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Take his requests
+        env:
+          APP_URL: ${{ secrets.APP_URL || vars.APP_URL }}
+          APP_TOKEN: ${{ secrets.APP_TOKEN }}
+        run: python -m jobbot.appsync pull
+      - name: Plan the batch
+        id: plan
+        run: python -m jobbot.tailor plan --limit "${{ inputs.limit || '6' }}"
+
+  write:
+    needs: plan
+    if: needs.plan.outputs.count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        uid: ${{ fromJSON(needs.plan.outputs.uids) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      # His criteria, targets, profile, answers, resumes and jobbot's state live
+      # in a private repo, so this one can be public. Without DATA_REPO set,
+      # everything is read from this checkout as before.
+      - name: Get his things
+        if: vars.DATA_REPO != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.DATA_REPO }}
+          token: ${{ secrets.DATA_TOKEN }}
+          path: private
+      - name: Point jobbot at them
+        if: vars.DATA_REPO != ''
+        run: |
+          echo "JOBBOT_PRIVATE=$GITHUB_WORKSPACE/private" >> "$GITHUB_ENV"
+          echo "JOBBOT_REPO=${{ vars.DATA_REPO }}" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt pymupdf
+      # The binary and its bundle are cached: downloading and installing them on
+      # every runner cost about 40 seconds each, which is real money against the
+      # free minutes when six resumes run side by side.
+      - uses: actions/cache@v4
+        id: tex
+        with:
+          path: |
+            ~/.local/bin/tectonic
+            ~/.cache/Tectonic
+          key: tectonic-v2
+      - name: Install tectonic
+        if: steps.tex.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.local/bin
+          cd /tmp && curl --proto '=https' --tlsv1.2 -fsSL https://drop-sh.fullyjustified.net | sh
+          mv tectonic ~/.local/bin/
+      - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Build profile
+        run: python -m jobbot.build_profile --source pipeline/profile.yaml
+
+      # This runner's posting only: its folder, its brief, its form.
+      - name: Prepare this posting
+        id: pick
+        run: python -m jobbot.tailor next --only "${{ matrix.uid }}" --limit 1
+
+      - name: Check Claude token
+        if: steps.pick.outputs.count != '0'
+        env:
+          RAW: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          # Shape only - never print the token. A token copied from a wrapped
+          # terminal line often carries newlines/spaces, which the API rejects.
+          T="$(printf '%s' "$RAW" | tr -d '[:space:]')"
+          echo "::add-mask::$T"
+          echo "raw length ${#RAW}, cleaned length ${#T}, whitespace removed: $([ ${#RAW} -ne ${#T} ] && echo yes || echo no)"
+          [[ "$T" == sk-ant-oat* ]] || { echo "::error::CLAUDE_CODE_OAUTH_TOKEN should start with sk-ant-oat - re-copy it from 'claude setup-token'"; exit 1; }
+          echo "CLAUDE_TOKEN=$T" >> "$GITHUB_ENV"
+
+      - name: Write the resume
+        id: claude
+        if: steps.pick.outputs.count != '0'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ env.CLAUDE_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # watch (github-actions[bot]) starts most runs; the action refuses bot
+          # triggers unless listed.
+          allowed_bots: "github-actions[bot],github-actions"
+          # Which Claude writes them is his to set, in Settings -> Resume.
+          claude_args: >-
+            ${{ needs.plan.outputs.model && format('--model {0}', needs.plan.outputs.model) || '' }}
+            --max-turns 30
+            --allowedTools "Read,Write,Edit,Bash(python -m jobbot.tailor build:*),Bash(python -m jobbot.tailor skip:*)"
+          prompt: |
+            You write one tailored resume for the user. The folder in data/batch.txt
+            has a brief.md holding everything you need: the posting (with anything he
+            asked for at the top of it), his facts, his resume rules, a resume he wrote
+            and sent, the resume.json schema, and the form questions to answer.
+            Read brief.md once. Do not open any other file - it is all in the brief.
+            He edits parts of the brief in his app: "What he wants you to know about
+            him", "His standing instructions" and "How he wants form answers written".
+            Follow them; they win over his resume rules, never over the fact rules below.
+
+            Work in as few steps as you can: one read, one or two writes, one build.
+
+            1. Read brief.md. If the posting is one he cannot take (wrong term such as
+               Fall 2026 only, PhD required, US citizens only, hardware-only or
+               non-software, a 2026 graduation requirement), run
+               `python -m jobbot.tailor skip <uid> "<one-line reason>"` and stop. The
+               uid is on the `jobbot:` line of the posting.
+            2. Write resume.json in that folder. These are the build's own rules, and
+               they hold even where his resume rules read otherwise:
+               - Every bullet cites the fact ids it comes from in source_ids, and only
+                 facts belonging to the entry it sits under.
+               - Numbers from the cited facts are used verbatim. A figure his facts
+                 do not carry may be coined when it fits the work (see "How much you
+                 may invent" in his rules) - every coined figure goes in the
+                 "coined" array of resume.json so he can check it.
+               - Tools: a fact's own tech, or its swap_tech when the posting names it.
+               - term: the key of education.grad_by_term matching the posting's term.
+               - Mark bold with **double asterisks**. Plain text otherwise, no LaTeX.
+               - Skills: exactly 4 rows, each fitting one line; posting keywords no fact
+                 covers go here, not in bullets.
+               Everything else - what goes on the page, how bullets are written, what
+               may be invented or swapped - is in "His resume rules" in the brief.
+               Follow it. He reads every resume before it is sent, so write with
+               nerve: no hedging, no filler, the version he would tell an
+               interviewer. Match the voice and density of the resume he wrote, and
+               never copy a fact's text: rewrite it in the posting's vocabulary,
+               with the numbers woven into the sentence ("loading **5M+ records**").
+            3. If the brief lists form questions, write answers.json in the same folder,
+               in the same step as resume.json if you can:
+               {"<the question's exact label>": "<answer>", ...}
+               written the way "How he wants form answers written" in the brief says.
+               Whatever that says, never invent a fact, number, employer or skill, and
+               a select gets exactly one of the listed options.
+            4. Run `python -m jobbot.tailor build "<folder>"`. It checks every claim,
+               typesets the page, and fits the spacing itself - it only reports what
+               spacing cannot fix. Read each FAIL, fix resume.json, rebuild, at most 3
+               more times. Too long: shorten a bullet or drop the weakest. UNDERFILLED:
+               add the next most relevant role or bullet. Never get past a verifier FAIL
+               by changing a number or tool to one the facts do not support.
+
+            Do not edit any other file. Do not run git. Do not apply to anything. There
+            is nobody to ask mid-run: decide, write it, and let the build check it.
+            If something is worth telling him - a call you were unsure about, a gap in
+            his facts, a question only he can answer - put one or two sentences in
+            "note_to_him" in resume.json. He reads it on the job in his app and can
+            reply there, and his reply comes back to you as a note on the next run.
+
+      # The whole conversation, turn by turn, so a slow run can be read rather
+      # than guessed at.
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.pick.outputs.count != '0'
+        with:
+          name: claude-trace-${{ matrix.uid }}
+          path: /home/runner/work/_temp/claude-execution-output.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Claude's final message
+        if: always() && steps.pick.outputs.count != '0'
+        run: |
+          f=/home/runner/work/_temp/claude-execution-output.json
+          [ -f "$f" ] && jq -r '[.[] | select(.type == "result")] | last | .result // "no result text"' "$f" | head -c 3000 || echo "no execution log"
+
+      - name: Commit the resume
+        if: always() && steps.pick.outputs.count != '0'
+        run: |
+          git config user.name  "jobbot"
+          git config user.email "jobbot@users.noreply.github.com"
+          python -m jobbot.tailor publish --only "${{ matrix.uid }}" --no-issues
+          python -m jobbot.gitsync "resumes: $(date -u +%Y-%m-%dT%H:%MZ)" resumes data/tailored.json
+
+      - name: Open the issue
+        if: always() && steps.pick.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ secrets.DATA_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name  "jobbot"
+          git config user.email "jobbot@users.noreply.github.com"
+          python -m jobbot.tailor publish --only "${{ matrix.uid }}"
+          python -m jobbot.gitsync "resumes: issues opened" data/tailored.json data/notified.json
+
+      # He tapped Apply, not "write it and wait".
+      - name: Apply where he asked for it
+        if: always() && steps.pick.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ secrets.DATA_TOKEN || secrets.GITHUB_TOKEN }}
+        run: python -m jobbot.tailor autoapply --only "${{ matrix.uid }}"
+
+      # The app is what he looks at, and it should say so as soon as this one
+      # is done rather than when the slowest runner finishes.
+      - name: Sync the app
+        if: always()
+        env:
+          APP_URL: ${{ secrets.APP_URL || vars.APP_URL }}
+          APP_TOKEN: ${{ secrets.APP_TOKEN }}
+        run: python -m jobbot.appsync push
+
+# Anything still waiting is picked up by the next watch run, which already
+# starts a resume run when postings are open. A job of its own here cost a
+# runner minute every time (dropped 2026-09-23, out of free minutes).

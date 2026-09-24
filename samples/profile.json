@@ -1,0 +1,61 @@
+{
+  "identity": {
+    "name": "the user",
+    "email": "you@example.com",
+    "location": "Mississauga, ON",
+    "work_authorization": "Canadian citizen"
+  },
+  "education": [
+    {
+      "id": "edu_uoft",
+      "institution": "State University",
+      "degree": "HBSc, Computer Science Specialist",
+      "gpa": "3.5/4.0",
+      "start": "2022-09",
+      "end": "2027-12"
+    }
+  ],
+  "experience": [
+    {
+      "id": "exp_northwind",
+      "employer": "Northwind",
+      "title": "AI Engineer Intern",
+      "location": "Toronto, ON",
+      "start": "2026-09",
+      "end": "2026-12",
+      "facts": [
+        {
+          "id": "f_man_1",
+          "text": "PLACEHOLDER - built a retrieval-augmented generation pipeline over internal policy documents using Python, FastAPI and pgvector embeddings",
+          "metrics": [],
+          "tech": ["Python", "FastAPI", "pgvector", "RAG"]
+        },
+        {
+          "id": "f_man_2",
+          "text": "PLACEHOLDER - reduced median document lookup latency from 1.8s to 400ms by adding an embedding cache",
+          "metrics": ["1.8s", "400ms"],
+          "tech": ["Redis"]
+        }
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "id": "proj_example",
+      "name": "PLACEHOLDER Project",
+      "facts": [
+        {
+          "id": "f_proj_1",
+          "text": "PLACEHOLDER - built a full-stack app with React and Node serving 200 monthly active users",
+          "metrics": ["200"],
+          "tech": ["React", "Node", "TypeScript", "PostgreSQL"]
+        }
+      ]
+    }
+  ],
+  "skills": {
+    "languages": ["Python", "TypeScript", "JavaScript", "SQL", "Java"],
+    "frameworks": ["React", "Node", "FastAPI", "PyTorch"],
+    "tools": ["Docker", "AWS", "Azure", "PostgreSQL", "Redis", "Git"]
+  }
+}

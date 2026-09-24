@@ -1,0 +1,56 @@
+name: digest
+
+# Once a day: every matching job posted in the last 24 hours, grouped by tier,
+# as a GitHub issue that @mentions the user - GitHub emails it to him. Also
+# refreshes open resume issues when their body format changes.
+on:
+  schedule:
+    - cron: "0 12 * * *"      # 08:00 Toronto (EDT)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: jobbot-digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # His criteria, targets, profile, answers, resumes and jobbot's state live
+      # in a private repo, so this one can be public. Without DATA_REPO set,
+      # everything is read from this checkout as before.
+      - name: Get his things
+        if: vars.DATA_REPO != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.DATA_REPO }}
+          token: ${{ secrets.DATA_TOKEN }}
+          path: private
+      - name: Point jobbot at them
+        if: vars.DATA_REPO != ''
+        run: |
+          echo "JOBBOT_PRIVATE=$GITHUB_WORKSPACE/private" >> "$GITHUB_ENV"
+          echo "JOBBOT_REPO=${{ vars.DATA_REPO }}" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt pymupdf
+      - name: Post digest
+        env:
+          GH_TOKEN: ${{ secrets.DATA_TOKEN || secrets.GITHUB_TOKEN }}
+        run: python -m jobbot.digest
+      - name: Refresh resume issues and save state
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.DATA_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name  "jobbot"
+          git config user.email "jobbot@users.noreply.github.com"
+          python -m jobbot.tailor publish
+          python -m jobbot.gitsync "digest: $(date -u +%Y-%m-%d)" resumes data/tailored.json data/notified.json
