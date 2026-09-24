@@ -124,6 +124,10 @@ export const PAGE = String.raw`<!doctype html>
   #sort { height:32px; padding:0 8px; border:1px solid var(--line-2); border-radius:8px; background:var(--panel);
     font-size:13px; min-width:0; flex:1; max-width:220px; }
   .viewbar .small { height:32px; margin-left:auto; font-size:13px; }
+  .fbtn.dots { margin-left:auto; padding:0 8px; }
+  .fbtn.dots svg { width:18px; height:18px; fill:currentColor; }
+  .list-menu { position:absolute; right:14px; top:calc(100% - 4px); z-index:7; min-width:230px;
+    box-shadow:0 12px 32px rgba(0,0,0,.22); }
   .fpanel { margin-top:10px; display:flex; flex-direction:column; gap:12px; padding-top:10px; border-top:1px solid var(--line); }
   .ftitle { font-size:12px; color:var(--text-3); margin-bottom:6px; }
   .chips.active { margin-top:10px; align-items:center; }
@@ -162,6 +166,10 @@ export const PAGE = String.raw`<!doctype html>
   .zones::-webkit-scrollbar { display:none; }
   .zones button { flex:none; border:0; background:none; color:var(--text-2); font-size:13.5px; font-weight:500;
     padding:6px 10px; border-radius:8px; cursor:pointer; white-space:nowrap; }
+  @media (max-width: 899px) {
+    .zones { gap:2px; }
+    .zones button { font-size:13px; padding:7px 8px; }
+  }
   .zones button:hover { background:var(--hover); color:var(--text); }
   .zones button.on { background:var(--sel); color:var(--text); }
   .zones button .n { color:var(--text-3); font-variant-numeric:tabular-nums; }
@@ -472,6 +480,18 @@ export const PAGE = String.raw`<!doctype html>
       background:rgba(0,0,0,.3); animation:scrim-in .22s ease-out; }
     @keyframes sheet-up { from { transform:translateY(100%); } }
     @keyframes scrim-in { from { opacity:0; } }
+    /* The same sheet a posting uses, for the same reason: a dropdown from a
+       toolbar on a phone is a row of targets too small to hit. */
+    .tools > .list-menu { position:fixed; left:0; right:0; bottom:0; top:auto; z-index:31;
+      min-width:0; max-width:none; border:0; border-top:1px solid var(--line);
+      border-radius:18px 18px 0 0; padding-bottom:calc(6px + env(safe-area-inset-bottom, 0px));
+      box-shadow:0 -20px 50px rgba(0,0,0,.28); animation:sheet-up .26s var(--ease); }
+    .tools > .list-menu::before { content:""; display:block; width:38px; height:4px;
+      border-radius:2px; background:var(--line-2); margin:10px auto 2px; }
+    .tools > .list-menu button { padding:16px 20px; font-size:16px; }
+    .tools > .list-menu button:first-of-type { border-top:1px solid var(--line); }
+    .tools > .scrim { display:block; position:fixed; inset:0; z-index:30;
+      background:rgba(0,0,0,.3); animation:scrim-in .22s ease-out; }
     .row { padding:13px 14px; }
     .jd { font-size:15.5px; }
     /* A label beside a box leaves neither enough room on a phone. Stacked, the
@@ -583,7 +603,7 @@ export const PAGE = String.raw`<!doctype html>
 const ZONES = [
   ["new", "New", [["new", ""]]],
   ["needs", "Needs you", [["needs", ""]]],
-  ["progress", "In progress", [["ready", "Resume ready"], ["building", "Writing your resume"], ["working", "Applying"]]],
+  ["progress", "Working", [["ready", "Resume ready"], ["building", "Writing your resume"], ["working", "Applying"]]],
   ["done", "Applied", [["done", ""]]],
   ["all", "All", [["new", "New"], ["needs", "Needs you"], ["ready", "Resume ready"],
                   ["building", "Writing your resume"], ["working", "Applying"], ["done", "Applied this week"]]],
@@ -916,6 +936,24 @@ function shown() {
 
 // The options for one filter, with how many jobs each would show.
 const inZone = (j) => (ZONES.find(([k]) => k === view.zone) || ZONES[0])[2].some(([st]) => st === j.state);
+// Everything he can do to the list as a whole. It used to be a row of links
+// under the last posting, which on a full board meant scrolling past a hundred
+// of them to reach a button.
+let moreOpen = false;
+
+function listMenu() {
+  const items = [
+    ["add", "Add a job yourself"],
+    ["select", selecting ? "Stop selecting" : "Select several"],
+    ["arch", showArchived ? "Hide archived" : "Show archived"],
+    snoozedCount || showSnoozed ? ["naps", showSnoozed ? "Hide snoozed" : "Snoozed (" + snoozedCount + ")"] : null,
+    muted.length ? ["mutes", "Muted companies (" + muted.length + ")"] : null,
+    filteredCount ? ["held", "Filtered out (" + filteredCount + ")"] : null,
+  ].filter(Boolean);
+  return '<div class="scrim" data-shut></div><div class="menu list-menu">' +
+    items.map(([k, label]) => '<button data-list="' + k + '">' + esc(label) + "</button>").join("") + "</div>";
+}
+
 function facet(name, options, has) {
   // Counted inside the tab he is on, so a number never promises jobs he
   // would not see.
@@ -1028,37 +1066,39 @@ function renderRail() {
     : '<div class="none"><b>' + EMPTY[0] + "</b>" + EMPTY[1] + "</div>";
   rail.innerHTML =
     '<div class="tools"><div class="search"><input id="q" placeholder="Search company, role or city" value="' +
-      esc(find) + '"><button class="ghost" id="sel">' + (selecting ? "Done" : "Select") + "</button></div>" +
+      esc(find) + '"' + (selecting ? "" : " enterkeyhint=\"search\"") + ">" +
+      (selecting ? '<button class="ghost" id="sel">Done</button>' : "") + "</div>" +
       '<div class="zones">' + ZONES.map(([k, label, states]) => {
         // Counted through his filters, so the number is what the tab will show.
         const n = jobs.filter((j) => states.some(([s]) => s === j.state) && j.state !== "skipped" && passes(j)).length;
+        const counted = k === "new" || k === "needs";
         return '<button class="' + (view.zone === k ? "on" : "") + (k === "needs" && n ? " urgent" : "") +
-          '" data-zone="' + k + '">' + label + (n ? ' <span class="n">' + n + "</span>" : "") + "</button>";
+          '" data-zone="' + k + '">' + label +
+          (n && counted ? ' <span class="n">' + n + "</span>" : "") + "</button>";
       }).join("") + "</div>" +
       '<div class="viewbar"><button class="fbtn' + (filtersOpen ? " open" : "") + '" id="ftoggle" aria-expanded="' +
         filtersOpen + '">Filters' + (activeFilters() ? ' <span class="badge">' + activeFilters() + "</span>" : "") + "</button>" +
         '<select id="sort" aria-label="Sort">' + SORTS.map(([k, l]) => '<option value="' + k + '"' +
           (view.sort === k ? " selected" : "") + ">" + l + "</option>").join("") + "</select>" +
         (picked.size ? '<button class="btn primary small" id="do-archive">Archive ' + picked.size + "</button>" : "") +
+        '<button class="fbtn dots" id="listmore" aria-label="More" aria-expanded="' + moreOpen + '">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/>' +
+          '<circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>' +
       "</div>" +
       (filtersOpen ? filterPanel() : activeChips()) +
+      (moreOpen ? listMenu() : "") +
     "</div>" +
     suggestionCard() +
     (groups || empty) +
     (showArchived && archived.length ? '<div class="group">Archived <span class="n">' + archived.length + "</span></div>" +
       archived.map(rowHtml).join("") : "") +
-    '<div class="foot"><button class="link" id="add-job">Add a job yourself</button>' +
-      '<button class="link" id="arch">' + (showArchived ? "Hide archived" : "Show archived") + "</button>" +
-      (snoozedCount || showSnoozed ? '<button class="link" id="naps">' +
-        (showSnoozed ? "Hide snoozed" : "Snoozed (" + snoozedCount + ")") + "</button>" : "") +
-      (muted.length ? '<button class="link" id="mutes">Muted companies (' + muted.length + ")</button>" : "") +
-      (filteredCount ? '<button class="link" id="held">Filtered out (' + filteredCount + ")</button>" : "") +
-    "</div>";
+    "";
 
   const q = document.getElementById("q");
   q.oninput = debounce(() => { find = q.value; renderRail(); const box = document.getElementById("q");
     box.focus(); box.setSelectionRange(box.value.length, box.value.length); }, 180);
-  document.getElementById("sel").onclick = () => { selecting = !selecting; picked.clear(); renderRail(); };
+  const sel = document.getElementById("sel");
+  if (sel) sel.onclick = () => { selecting = false; picked.clear(); renderRail(); };
   rail.querySelectorAll("[data-zone]").forEach((b) => b.onclick = () => {
     view.zone = b.dataset.zone; saveView(); renderRail();
     rail.scrollTop = 0;                                   // a new tab starts at its top
@@ -1084,15 +1124,29 @@ function renderRail() {
   });
   const many = document.getElementById("do-archive");
   if (many) many.onclick = () => { const uids = [...picked]; selecting = false; picked.clear(); archive(uids); };
-  document.getElementById("add-job").onclick = () => addPane();
-  document.getElementById("arch").onclick = () => { showArchived = !showArchived; load(); };
-  const naps = document.getElementById("naps");
-  if (naps) naps.onclick = () => { showSnoozed = !showSnoozed; load(); };
-  const mutes = document.getElementById("mutes");
-  if (mutes) mutes.onclick = mutedPane;
+  document.getElementById("listmore").onclick = (e) => {
+    e.stopPropagation();
+    moreOpen = !moreOpen;
+    renderRail();
+  };
+  const LIST_DO = {
+    add: () => addPane(),
+    select: () => { selecting = !selecting; picked.clear(); renderRail(); },
+    arch: () => { showArchived = !showArchived; load(); },
+    naps: () => { showSnoozed = !showSnoozed; load(); },
+    mutes: () => mutedPane(),
+    held: () => filteredPane(),
+  };
+  rail.querySelectorAll("[data-list]").forEach((b) => b.onclick = (e) => {
+    e.stopPropagation();
+    moreOpen = false;
+    const go = LIST_DO[b.dataset.list];
+    renderRail();
+    if (go) go();
+  });
+  const shut = rail.querySelector("[data-shut]");
+  if (shut) shut.onclick = () => { moreOpen = false; renderRail(); };
   bindSuggestion(rail);
-  const held = document.getElementById("held");
-  if (held) held.onclick = () => filteredPane();
   rail.scrollTop = railY;
 }
 
