@@ -36,6 +36,7 @@ export default {
     const path = url.pathname;
     try {
       if (path === "/api/login") return login(request, env);
+      if (path === "/api/key") return issueKey(request, env);
       if (path === "/manifest.json") return json(MANIFEST);
       if (path === "/icon.png")
         return new Response(Uint8Array.from(atob(ICON_PNG), (c) => c.charCodeAt(0)),
@@ -57,6 +58,10 @@ export default {
       }
 
       if (!(await authed(request, env))) return json({ error: "locked" }, 401);
+      if (path === "/api/lookup") return lookup(env, url.searchParams.get("url"));
+      if (path === "/api/capture") return capture(request, env);
+      if (path === "/api/me") return profileNow(env).then((m) =>
+        json(m ? { ...m.contact, ...m.education } : {}));
       if (path === "/api/jobs") return jobs(env, url);
       if (path === "/api/applications") return applications(request, env, url);
       if (path === "/api/applications/restore") return restoreApplication(request, env);
@@ -120,9 +125,19 @@ async function token(env) {
 }
 
 async function authed(request, env) {
+  const want = await token(env);
+  const key = request.headers.get("x-jobbot-key");
+  if (key && key === want) return true;              // the browser extension
   const cookie = request.headers.get("cookie") || "";
   const found = cookie.split(";").map((c) => c.trim()).find((c) => c.startsWith(`${COOKIE}=`));
-  return !!found && found.slice(COOKIE.length + 1) === (await token(env));
+  return !!found && found.slice(COOKIE.length + 1) === want;
+}
+
+// The extension asks for the key once, with the passcode, and keeps it.
+async function issueKey(request, env) {
+  const { passcode } = await request.json().catch(() => ({}));
+  if (!env.APP_PASSCODE || passcode !== env.APP_PASSCODE) return json({ ok: false }, 401);
+  return json({ ok: true, key: await token(env) });
 }
 
 async function login(request, env) {
@@ -207,6 +222,12 @@ async function askGitHub(env) {
   return out;
 }
 
+async function profileNow(env) {
+  const row = await one(env, `SELECT base, value, value_base FROM settings WHERE key = 'profile'`);
+  if (!row || !row.base) return null;
+  return row.value ? merge3(parse(row.base), parse(row.value_base), parse(row.value)) : parse(row.base);
+}
+
 // Every tool named in his skills rows or attached to something he built.
 function knownTech(profile) {
   const out = new Set();
@@ -267,7 +288,7 @@ async function jobs(env, url) {
       since: r.updated_at,
       posted_at: r.posted_at, deadline: r.deadline, url: r.url, apply_url: r.apply_url,
       issue: r.issue, folder: r.folder, pdf: r.pdf, preview: r.preview, knockout: !!r.knockout,
-      hint: r.hint, jd: r.jd, says: r.says, snoozed_until: r.snoozed_until,
+      hint: r.hint, jd: r.jd, says: r.says, snoozed_until: r.snoozed_until, referred_at: r.referred_at,
       shots: r.shots ? JSON.parse(r.shots) : [],
     });
   }
@@ -291,6 +312,11 @@ async function jobs(env, url) {
   return json({ jobs: out, counts, snoozed, muted: muted.map((m) => m.company), following: follows,
                 filtered: held ? held.n : 0, running: busy,
                 owner: (mine && mine.contact && mine.contact.name) || null,
+                // His school and his LinkedIn, so the app can point him at the
+                // people who could refer him.
+                me: mine ? { name: (mine.contact || {}).name || "", school: (mine.education || {}).school || "",
+                             major: (mine.education || {}).major || "",
+                             linkedin: (mine.contact || {}).linkedin || "" } : null,
                 // The tools he has actually used, so the app can say which of
                 // them a posting asks for.
                 knows: mine ? knownTech(mine) : [],
@@ -573,6 +599,17 @@ async function command(request, env) {
     return json({ ok: true, said: "Added to your jobs", uid: f.uid });
   }
 
+  // He asked someone at the company, or he changed his mind about having done.
+  // Nothing else about the job moves: this is a fact about him, not a state.
+  if (b.command === "referred") {
+    if (!b.uid) return json({ error: "uid required" }, 400);
+    const when = b.off ? null : now();
+    const r = await run(env, `UPDATE jobs SET referred_at = ?1, updated_at = ?2 WHERE uid = ?3`,
+      when, now(), b.uid);
+    if (!(r.meta ? r.meta.changes : 1)) return json({ error: "no such job" }, 404);
+    return json({ ok: true, said: when ? "Noted - you asked for a referral" : "Cleared", referred_at: when });
+  }
+
   // "keep" only stores what he wants said differently; nothing else moves.
   if (b.command === "keep") {
     if (!b.uid) return json({ error: "uid required" }, 400);
@@ -638,7 +675,7 @@ async function command(request, env) {
   let said = c.said;
   if (b.command in ASKS || b.command === "rebuild") {
     const started = await startResumes(env);
-    if (!started) said = "Asked for. It starts at the next check, within 15 minutes.";
+    if (!started) said = "Asked for. It starts at the next check, within five minutes.";
   }
   if (b.command === "retry") {
     const issue = jobs[0] && jobs[0].issue;
@@ -672,7 +709,7 @@ async function startResumes(env) {
 }
 
 // "Check now": start a boards sweep rather than only re-reading what the app
-// already has. jobbot runs every 15 minutes anyway, so this is for when he is
+// already has. jobbot runs every five minutes anyway, so this is for when he is
 // looking and does not want to wait.
 async function checkNow(env) {
   const last = await one(env, `SELECT value FROM meta WHERE key = 'asked'`);
@@ -687,19 +724,22 @@ async function checkNow(env) {
   if (env.later) env.later(go.then(() => run(env, `DELETE FROM meta WHERE key = 'runs'`)));
   else {
     const r = await go;
-    if (!r || !r.ok) return json({ ok: false, said: "Could not start a check - jobbot tries again within 15 minutes" });
+    if (!r || !r.ok) return json({ ok: false, said: "Could not start a check - jobbot tries again within five minutes" });
   }
   return json({ ok: true, said: "Checking the boards" });
 }
 
 async function recordApplied(env, job, how) {
   const at = now();
+  // If he asked someone before applying, that belongs on the record: it is the
+  // first thing he will want to know if an interview comes of it.
+  const asked = job.referred_at ? "Asked for a referral on " + String(job.referred_at).slice(0, 10) : null;
   const r = await run(env,
-    `INSERT INTO applications (uid, company, title, applied_at, outcome, apply_url, pdf, how, updated_at)
-     SELECT ?1, ?2, ?3, ?4, 'no response', ?5, ?6, ?7, ?8
+    `INSERT INTO applications (uid, company, title, applied_at, outcome, apply_url, pdf, referral, how, updated_at)
+     SELECT ?1, ?2, ?3, ?4, 'no response', ?5, ?6, ?9, ?7, ?8
      WHERE NOT EXISTS (SELECT 1 FROM applications WHERE uid = ?1
                        OR (company = ?2 AND title = ?3 AND applied_at = ?4))`,
-    job.uid, job.company, job.title, at.slice(0, 10), job.apply_url || null, job.pdf || null, how, at);
+    job.uid, job.company, job.title, at.slice(0, 10), job.apply_url || null, job.pdf || null, how, at, asked);
   if (!r.meta || !r.meta.changes) return null;                  // already recorded
   const row = await one(env, `SELECT * FROM applications WHERE uid = ?1 ORDER BY id DESC LIMIT 1`, job.uid);
   return row ? { ...row, company: pretty(row.company) } : null;
@@ -1227,15 +1267,19 @@ async function repoFile(env, path, raw = false) {
 
 async function answers(env, folder) {
   if (!folder || folder.includes("..")) return json({ error: "folder required" }, 400);
+  return json(await answersFor(env, folder));
+}
+
+async function answersFor(env, folder) {
   const [app, mine, coined] = await Promise.all([
     repoFile(env, `${folder}/application.json`).catch(() => null),
     all(env, `SELECT label, text FROM answers WHERE folder = ?1`, folder),
     // Figures the writer put on the page that his facts did not carry.
     repoFile(env, `${folder}/coined.json`).catch(() => null),
   ]);
-  if (!app) return json({ questions: [], knockouts: [], none: true, coined: coined || [] });
+  if (!app) return { questions: [], knockouts: [], none: true, coined: coined || [] };
   const edited = new Map(mine.map((r) => [r.label, r]));
-  return json({
+  return {
     knockouts: app.knockouts || [], problems: app.problems || [], coined: coined || [],
     // What he typed wins over what was drafted for him, here and in the form.
     questions: (app.questions || []).filter((q) => q.how !== "skip").map((q) => ({
@@ -1244,7 +1288,66 @@ async function answers(env, folder) {
       how: edited.has(q.label) ? "you" : q.how,
       was: edited.has(q.label) ? edited.get(q.label).was : null,
     })),
-  });
+  };
+}
+
+// Which posting is this page, if any.
+//
+// He applies on his laptop, in another tab, and what he needs there is what
+// jobbot already wrote for this job. The page's address is the only thing the
+// extension can go on, so match on the host first and then on any id the two
+// addresses share: a Greenhouse form is /jobs/8123225 where the posting was
+// /jobs/8123225#app, and a Workday form drops the whole path.
+const IDS = /[0-9a-f]{6,}|\d{4,}|R-?\d{3,}/gi;
+
+async function lookup(env, page) {
+  if (!page) return json({ error: "url required" }, 400);
+  let host = "";
+  try { host = new URL(page).hostname.replace(/^www\./, ""); } catch (e) { return json({ error: "bad url" }, 400); }
+  const rows = await all(env, `SELECT uid, company, title, state, url, apply_url, raw_id, folder, pdf, note,
+                                      term, location, posted_at FROM jobs
+                               WHERE state != 'skipped' AND (url LIKE ?1 OR apply_url LIKE ?1)
+                               ORDER BY updated_at DESC LIMIT 60`, "%" + host + "%");
+  const mine = new Set((page.match(IDS) || []).map((s) => s.toLowerCase()));
+  const bare = (u) => String(u || "").split(/[?#]/)[0].replace(/\/$/, "");
+  let best = null, score = 0;
+  for (const j of rows) {
+    let n = 0;
+    if (bare(j.url) === bare(page) || bare(j.apply_url) === bare(page)) n += 10;
+    if (j.raw_id && mine.has(String(j.raw_id).toLowerCase())) n += 6;
+    for (const id of (String(j.url || "") + " " + String(j.apply_url || "")).match(IDS) || [])
+      if (mine.has(id.toLowerCase())) n += 3;
+    if (n > score) { score = n; best = j; }
+  }
+  const me = await profileNow(env).catch(() => null);
+  const facts = me ? { ...me.contact, ...me.education } : null;
+  if (!best) return json({ job: null, host, me: facts });
+  const said = best.folder ? await answersFor(env, best.folder) : { questions: [] };
+  return json({ job: best, me: facts, questions: said.questions || [], knockouts: said.knockouts || [] });
+}
+
+// A posting he found himself, on a board jobbot cannot read. It joins the feed
+// as if jobbot had found it: he can ask for a resume on it like any other.
+async function capture(request, env) {
+  const b = await request.json().catch(() => ({}));
+  const link = String(b.url || "").slice(0, 900);
+  if (!/^https?:\/\//.test(link)) return json({ error: "a link is required" }, 400);
+  const company = String(b.company || "").trim().slice(0, 120) || "Unknown";
+  const title = String(b.title || "").trim().slice(0, 300) || "Role";
+  const digest = await crypto.subtle.digest("SHA-1", new TextEncoder().encode("you:" + link));
+  const uid = [...new Uint8Array(digest)].map((x) => x.toString(16).padStart(2, "0")).join("").slice(0, 16);
+  const had = await one(env, `SELECT uid, state FROM jobs WHERE uid = ?1`, uid);
+  if (had) return json({ ok: true, uid, said: "Already on your board" });
+  const at = now();
+  await run(env, `INSERT INTO jobs (uid, company, title, tier, term, location, source, org, raw_id, url,
+                  apply_url, posted_at, state, note, knockout, seen_at, jd, updated_at)
+                  VALUES (?1, ?2, ?3, 1, ?4, ?5, 'you', 'you', ?1, ?6, ?7, ?8, 'new', ?9, 0, ?10, ?11, ?10)`,
+    uid, company, title, termOf(title + " " + (b.description || "")), String(b.location || "").slice(0, 200),
+    link, String(b.apply_url || link).slice(0, 900), b.posted_at || null,
+    "You added this from " + (b.where || "your browser"), at, String(b.description || "").slice(0, 60000));
+  await run(env, `INSERT INTO events (uid, at, kind, detail) VALUES (?1, ?2, 'found', ?3)`,
+    uid, at, JSON.stringify({ posting: { uid, company, title, url: link, source: "you" } }));
+  return json({ ok: true, uid, said: "Added to your jobs" });
 }
 
 // ?save=Name downloads the file as Name.<ext> instead of opening it.

@@ -135,3 +135,8 @@ ALTER TABLE jobs ADD COLUMN says TEXT;
 
 CREATE TABLE IF NOT EXISTS push_sent (uid TEXT NOT NULL, state TEXT NOT NULL, at TEXT NOT NULL,
   PRIMARY KEY (uid, state));
+
+-- When he asked someone at the company to refer him. A referral is worth more
+-- than anything a resume can say, and it has to happen before he applies, so
+-- the board asks him about it while the posting is still new.
+ALTER TABLE jobs ADD COLUMN referred_at TEXT;

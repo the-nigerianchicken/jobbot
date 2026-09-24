@@ -65,8 +65,9 @@ def _ts(value):
         return None
     try:
         if isinstance(value, (int, float)):
-            # Lever uses epoch milliseconds
-            return datetime.fromtimestamp(value / 1000, tz=timezone.utc)
+            # Lever sends epoch milliseconds, Microsoft epoch seconds. Anything
+            # under 1e11 is seconds unless jobs start being posted in 5138.
+            return datetime.fromtimestamp(value / (1 if abs(value) < 1e11 else 1000), tz=timezone.utc)
         dt = dateparse.parse(value)
         return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
     except (ValueError, OverflowError, TypeError):
@@ -148,15 +149,26 @@ WORKDAY_QUERIES = ("intern", "co-op")
 
 
 def _workday_parts(org):
+    """tenant|host|site.
+
+    Two shapes are in the wild. Most tenants get a subdomain of their own
+    (nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite); some share a host
+    and are told apart by a path (wd1.myworkdaysite.com/recruiting/snapchat/snap).
+    Writing the host as "wd1.myworkdaysite.com/recruiting" asks for the second.
+    """
     parts = org.split("|")
     if len(parts) != 3:
         raise ValueError(f"workday org must be tenant|host|site, got {org!r}")
-    return parts
+    tenant, host, site = parts
+    if "/" in host:
+        host, prefix = host.split("/", 1)
+        return tenant, host, site, f"https://{host}/{prefix}/{tenant}/{site}"
+    return tenant, host, site, f"https://{tenant}.{host}/{site}"
 
 
 def workday(org: str, pages=2, per_page=20) -> list[Posting]:
-    tenant, host, site = _workday_parts(org)
-    base = f"https://{tenant}.{host}/wday/cxs/{tenant}/{site}"
+    tenant, host, site, front = _workday_parts(org)
+    base = f"https://{host if '/' in org.split('|')[1] else tenant + '.' + host}/wday/cxs/{tenant}/{site}"
     out, seen = [], set()
     for query in WORKDAY_QUERIES:
         for page in range(pages):
@@ -172,8 +184,8 @@ def workday(org: str, pages=2, per_page=20) -> list[Posting]:
                     source="workday", org=org, company=tenant,
                     title=j.get("title", ""),
                     location=j.get("locationsText", "") or "",
-                    url=f"https://{tenant}.{host}/{site}{path}",
-                    apply_url=f"https://{tenant}.{host}/{site}{path}/apply",
+                    url=f"{front}{path}",
+                    apply_url=f"{front}{path}/apply",
                     posted_at=None,                  # filled by workday_detail
                     description=j.get("title", ""),
                     raw_id=(j.get("bulletFields") or [path])[0]))
@@ -184,13 +196,15 @@ def workday(org: str, pages=2, per_page=20) -> list[Posting]:
 
 def workday_detail(posting):
     """Fill in the employer's own date and the description. One request."""
-    tenant, host, site = _workday_parts(posting.org)
+    tenant, host, site, _front = _workday_parts(posting.org)
     # Split on "/job/", not on the site name: the site name is often the tenant
     # name too, which also appears in the host (copart.wd12.../copart/job/...).
     if "/job/" not in posting.url:
         return posting
     path = "/job/" + posting.url.split("/job/", 1)[1]
-    info = (_get(f"https://{tenant}.{host}/wday/cxs/{tenant}/{site}{path}") or {}).get("jobPostingInfo") or {}
+    shared = "/" in posting.org.split("|")[1]
+    cxs = f"https://{host if shared else tenant + '.' + host}/wday/cxs/{tenant}/{site}"
+    info = (_get(cxs + path) or {}).get("jobPostingInfo") or {}
     posting.posted_at = _ts(info.get("startDate")) or posting.posted_at
     posting.description = _strip(info.get("jobDescription") or "") or posting.description
     posting.location = info.get("location") or posting.location
@@ -240,8 +254,19 @@ def _community(org):
     return community.fetch(org)
 
 
+def _direct(name):
+    """The big companies run their own boards; direct.py reads those. Imported
+    when called, because it imports this module."""
+    def go(org):
+        from . import direct
+        return direct.FETCHERS[name](org)
+    return go
+
+
 FETCHERS = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "amazon": amazon,
-            "workday": workday, "community": _community}
+            "workday": workday, "community": _community,
+            "google": _direct("google"), "microsoft": _direct("microsoft"),
+            "apple": _direct("apple"), "uber": _direct("uber"), "shopify": _direct("shopify")}
 
 # Ashby's public board feed omits application deadlines, so a posting whose
 # deadline passed in May can be re-published today and look brand new (NPX,
@@ -296,6 +321,14 @@ def _strip(html: str) -> str:
     import html as htmlmod
     import re
     text = htmlmod.unescape(html or "")
+    # Sites that escape their own descriptions twice leave "&nbsp;" written out
+    # in the text. Undo that for the harmless ones only: a second full unescape
+    # would turn an escaped "&amp;lt;script&amp;gt;" back into a tag.
+    text = re.sub(r"&(nbsp|amp|rsquo|lsquo|ldquo|rdquo|mdash|ndash|hellip|bull|middot|deg|reg|trade|copy);",
+                  lambda m: {"nbsp": " ", "amp": "&", "rsquo": "\u2019", "lsquo": "\u2018",
+                             "ldquo": "\u201c", "rdquo": "\u201d", "mdash": "\u2014", "ndash": "\u2013",
+                             "hellip": "\u2026", "bull": "\u2022", "middot": "\u00b7", "deg": "\u00b0",
+                             "reg": "\u00ae", "trade": "\u2122", "copy": "\u00a9"}[m.group(1)], text)
     text = re.sub(r"(?i)<\s*li[^>]*>", "\n• ", text)
     text = re.sub(r"(?i)<\s*(br|/p|/div|/li|/ul|/ol|/h[1-6]|/tr|/section)\s*/?>", "\n", text)
     text = re.sub(r"<[^>]+>", " ", text)

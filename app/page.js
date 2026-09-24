@@ -87,15 +87,17 @@ export const PAGE = String.raw`<!doctype html>
   .seg button { border:0; background:none; padding:5px 12px; border-radius:6px; font-size:13px;
                 font-weight:500; color:var(--text-2); }
   .seg button.on { background:var(--panel); color:var(--text); box-shadow:0 1px 2px rgba(0,0,0,.08); }
-  .beat-row { display:flex; align-items:center; gap:10px; min-height:18px; }
+  .beat-row { display:flex; align-items:center; gap:10px; min-height:18px; min-width:0; margin-left:auto; }
+  .beat-row .link, .beat-row .working { flex:none; }
   .working { display:flex; align-items:center; gap:7px; font-size:12px; color:var(--text-2); }
-  .broken { font-size:12px; color:var(--red); }
+  .broken { font-size:12px; color:var(--red); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .broken a { color:inherit; }
   .spin { width:11px; height:11px; border-radius:50%; border:1.6px solid var(--line-2);
     border-top-color:var(--accent); animation:spin .8s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .spin { animation-duration:2.4s; } }
-  .beat { font-size:12px; color:var(--text-3); white-space:nowrap; }
+  .beat { font-size:12px; color:var(--text-3); white-space:nowrap; overflow:hidden;
+          text-overflow:ellipsis; min-width:0; }
   .beat.cold { color:var(--amber); }
 
   /* ------------------------------------------------------------- layout -- */
@@ -131,6 +133,8 @@ export const PAGE = String.raw`<!doctype html>
   @keyframes from-left { from { transform:translateX(-18px); opacity:.6; } }
   @media (prefers-reduced-motion: reduce) { .slide-l, .slide-r { animation:none; } }
   .fits span { color:var(--accent); }
+  .asked { color:var(--green); }
+  details.fold > summary .hint { text-transform:none; }
   .closes { color:var(--amber); }
   .closes.soon { color:var(--red); font-weight:600; }
   .unread { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--accent);
@@ -138,10 +142,13 @@ export const PAGE = String.raw`<!doctype html>
   /* What a swipe reveals under the row. */
   .swipe { position:relative; overflow:hidden; }
   .swipe::before { content:attr(data-label); position:absolute; inset:0; display:flex; align-items:center;
-    padding:0 20px; font-size:13px; font-weight:600; color:#fff; opacity:0; }
-  .swipe[data-side="left"]::before { justify-content:flex-end; background:var(--red); opacity:1; }
+    padding:0 20px; font-size:13.5px; font-weight:600; color:#fff; opacity:0;
+    letter-spacing:calc(var(--sw, 0) * .2px - .2px); }
+  .swipe[data-side="left"]::before { justify-content:flex-end; background:var(--red); opacity:var(--sw, 0); }
   .swipe[data-side="right"]::before { justify-content:flex-start; background:var(--primary);
-    color:var(--on-primary); opacity:1; }
+    color:var(--on-primary); opacity:var(--sw, 0); }
+  /* Past the point where letting go acts, the label stops growing and holds. */
+  .swipe[data-armed="1"]::before { opacity:1; }
   .swipe .row { position:relative; background:var(--panel); }
   .chips button { border:1px solid var(--line-2); background:var(--panel); border-radius:999px;
                   padding:3px 10px; font-size:12.5px; color:var(--text-2); }
@@ -386,6 +393,7 @@ export const PAGE = String.raw`<!doctype html>
                   border-radius:8px; background:var(--panel); font-size:13.5px; }
 
   .toast { position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom) + 20px); transform:translateX(-50%);
+           --lift:0px; margin-bottom:var(--lift);
            z-index:40; display:flex; align-items:center; gap:14px; background:var(--primary); color:var(--on-primary);
            padding:10px 14px; border-radius:10px; font-size:13.5px; box-shadow:0 6px 24px rgba(0,0,0,.18);
            max-width:calc(100vw - 32px); }
@@ -400,30 +408,74 @@ export const PAGE = String.raw`<!doctype html>
 
   /* ------------------------------------------------------------- phone -- */
   @media (max-width: 899px) {
-    .top { padding:0 14px; gap:12px; }
+    /* An app, not a page. The title bar and the tab bar are pinned and never
+       move; between them sits exactly one scroller. That is what lets the list
+       answer a pull at its own top instead of handing the gesture to the
+       browser, and it is why nothing shifts under his thumb while he reads. */
+    html, body { height:100%; overflow:hidden; overscroll-behavior:none; }
+    body { --top-h:calc(46px + env(safe-area-inset-top, 0px));
+           --bar-h:calc(66px + env(safe-area-inset-bottom, 0px));
+           --ease:cubic-bezier(.32,.72,0,1); }
 
-    .shell { display:block; height:auto; }
-    .rail { border-right:0; min-height:calc(100vh - 56px); }
-    .detail { display:none; }
-    body.reading .rail { display:none; }
-    body.reading .detail { display:block; overflow:visible; }
-    .d { padding:16px 18px 90px; }
-    .back { display:inline-flex !important; margin-bottom:14px; }
-    .d-title { font-size:21px; }
-    /* The controls sit where his thumb is, above the tab bar, and the menus
-       open upward from them. */
-    body.reading .actions { position:fixed; left:0; right:0; top:auto; z-index:25;
-      bottom:calc(64px + env(safe-area-inset-bottom, 0px)); margin:0; padding:10px 14px;
+    .top { position:fixed; top:0; left:0; right:0; z-index:40; height:var(--top-h);
+           padding:env(safe-area-inset-top, 0px) 16px 0; gap:12px; }
+    .shell { display:block; position:fixed; left:0; right:0; top:var(--top-h); bottom:var(--bar-h);
+             height:auto; overflow:hidden; }
+    .rail, .detail { position:absolute; inset:0; overflow-y:auto; overflow-x:hidden;
+      -webkit-overflow-scrolling:touch; overscroll-behavior:contain;
+      transition:transform .32s var(--ease); }
+    .rail { border-right:0; min-height:0; padding-bottom:28px; overflow-anchor:none;
+            transform:translate3d(var(--rail-x, 0px), var(--rail-y, 0px), 0); }
+    /* A posting arrives from the right and the list slides a little way behind
+       it, so going back is a direction and not a redraw. */
+    .detail { background:var(--bg); visibility:hidden; padding-bottom:0; z-index:6;
+              transform:translate3d(var(--det-x, 100%), 0, 0);
+              box-shadow:-14px 0 28px rgba(0,0,0,.16);
+              transition:transform .32s var(--ease), visibility 0s linear .32s; }
+    body.reading .detail { --det-x:0px; visibility:visible;
+              transition:transform .32s var(--ease), visibility 0s; }
+    body.reading .rail { --rail-x:-22%; }
+    /* While a finger is down the panels track it exactly: no easing in the way. */
+    body.dragging .rail, body.dragging .detail { transition:none; }
+
+    .d { padding:14px 18px calc(84px + env(safe-area-inset-bottom, 0px)); min-height:100%;
+         display:flex; flex-direction:column; }
+    .d > * { order:2; }
+    .d > .back { order:0; }
+    .d > .d-head { order:1; }
+    .d > .actions { order:9; }
+    .back { display:inline-flex !important; margin-bottom:14px; align-self:flex-start; }
+    .d-title { font-size:22px; }
+    /* The controls sit where his thumb is. Fixed inside the sliding panel, so
+       they stay put while the posting scrolls and still travel with the slide. */
+    body.reading .actions { position:fixed; left:0; right:0; bottom:0; top:auto; z-index:25;
+      margin:0; padding:9px 14px calc(9px + env(safe-area-inset-bottom, 0px));
       display:flex; flex-wrap:nowrap; gap:8px; overflow-x:auto; scrollbar-width:none;
-      background:color-mix(in srgb, var(--panel) 92%, transparent);
-      -webkit-backdrop-filter:blur(16px); backdrop-filter:blur(16px);
-      border-top:1px solid var(--line); border-bottom:0; }
+      background:var(--panel); border-top:1px solid var(--line); border-bottom:0; }
     body.reading .actions::-webkit-scrollbar { display:none; }
-    body.reading .actions .btn { flex:none; height:40px; }
-    body.reading .actions > .menu { top:auto; bottom:calc(100% + 6px); right:14px; left:auto !important; }
-    body.reading .d { padding-bottom:calc(150px + env(safe-area-inset-bottom, 0px)); }
-    .row { padding:12px 14px; }
+    body.reading .actions .btn { flex:none; height:44px; padding:0 16px; font-size:14.5px; }
+    /* Everything else can scroll off the end; the button that holds the rest
+       of the menu cannot. */
+    body.reading .actions #more { position:sticky; right:0; margin-left:auto;
+      box-shadow:-14px 0 14px 6px var(--panel); }
+    /* A menu is a sheet from the bottom edge, with rows big enough to hit. */
+    body.reading .actions > .menu { position:fixed; left:0; right:0; bottom:0; top:auto; margin:0;
+      min-width:0; max-width:none; max-height:72%; border:0; border-top:1px solid var(--line);
+      border-radius:18px 18px 0 0; padding-bottom:calc(6px + env(safe-area-inset-bottom, 0px));
+      box-shadow:0 -20px 50px rgba(0,0,0,.28); animation:sheet-up .26s var(--ease); }
+    body.reading .actions > .menu::before { content:""; display:block; width:38px; height:4px;
+      border-radius:2px; background:var(--line-2); margin:10px auto 2px; }
+    body.reading .actions > .menu button { padding:16px 20px; font-size:16px; }
+    body.reading .actions > .menu button:first-of-type { border-top:1px solid var(--line); }
+    body.reading .actions > .menu .menu-head { padding:16px 20px 8px; font-size:13px; }
+    body.reading .actions > .scrim { display:block; position:fixed; inset:0; z-index:5;
+      background:rgba(0,0,0,.3); animation:scrim-in .22s ease-out; }
+    @keyframes sheet-up { from { transform:translateY(100%); } }
+    @keyframes scrim-in { from { opacity:0; } }
+    .row { padding:13px 14px; }
     .jd { font-size:15.5px; }
+    .toast { --lift:calc(58px + env(safe-area-inset-bottom, 0px)); }
+    body.reading .toast { --lift:calc(116px + env(safe-area-inset-bottom, 0px)); }
   }
   @media (prefers-reduced-motion: no-preference) {
     .toast { animation:rise .16s ease-out; }
@@ -432,23 +484,46 @@ export const PAGE = String.raw`<!doctype html>
 
   /* --------------------------------------------------- on a phone, an app -- */
   .tabbar { display:none; }
+  .pull { display:none; }
+  .scrim { display:none; }
   @media (max-width: 899px) {
-    /* Nothing in the chrome is a web page: a title bar that gets out of the
-       way, one screen at a time, and the controls under his thumb. */
-    html, body { overscroll-behavior-y:none; }
-    .top { height:auto; padding:calc(8px + env(safe-area-inset-top, 0px)) 16px 8px; gap:10px; }
-    .brand { font-size:17px; }
+    .brand { font-size:17px; flex:none; }
     .top .seg, .top .gear { display:none; }
-    .shell { min-height:0; }
-    .rail, .d { padding-bottom:calc(76px + env(safe-area-inset-bottom, 0px)); }
+    .top .beat-row { gap:8px; overflow:hidden; }
+    /* The search box and the filter bar step aside as he reads down the list
+       and come back the moment he heads up again. The tabs never leave: they
+       are how he moves around. */
+    .tools > .search, .tools > .viewbar {
+      max-height:56px; overflow:hidden; transition:max-height .24s var(--ease), opacity .16s, margin-top .24s; }
+    .rail.tight .tools > .search, .rail.tight .tools > .viewbar {
+      max-height:0; opacity:0; margin-top:-10px; pointer-events:none; }
+    .rail.tight .tools { padding-bottom:4px; }
+    .rail.tight .zones { margin-top:2px; }
+    /* Pull the list down and this ring comes with it, filling as it goes. A
+       full ring means letting go will check the boards. */
+    .pull { display:flex; position:absolute; left:0; right:0; top:0; z-index:4;
+      justify-content:center; pointer-events:none; opacity:0;
+      transform:translate3d(0,-40px,0); transition:transform .32s var(--ease), opacity .2s; }
+    body.dragging .pull { transition:none; }
+    .pull i { width:32px; height:32px; border-radius:50%; background:var(--panel);
+      border:1px solid var(--line); box-shadow:0 3px 10px rgba(0,0,0,.14);
+      display:flex; align-items:center; justify-content:center;
+      transition:transform .18s var(--ease); }
+    .pull.ready i { transform:scale(1.12); }
+    .pull svg { width:18px; height:18px; transform:rotate(-90deg); }
+    .pull circle { fill:none; stroke-width:2.4; }
+    .pull .track { stroke:var(--line); }
+    .pull .arc { stroke:var(--accent); stroke-dasharray:50.3; stroke-linecap:round; }
+    body.refreshing .pull i { animation:spin .7s linear infinite; }
+    body.refreshing .pull.ready i { transform:none; }
     .tabbar { display:flex; position:fixed; left:0; right:0; bottom:0; z-index:30;
       padding:6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
       background:color-mix(in srgb, var(--panel) 88%, transparent);
       -webkit-backdrop-filter:saturate(180%) blur(16px); backdrop-filter:saturate(180%) blur(16px);
       border-top:1px solid var(--line); }
     .tabbar button { flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
-      border:0; background:none; padding:6px 0 4px; color:var(--text-3); font-size:11px; font-weight:500;
-      border-radius:10px; }
+      border:0; background:none; padding:7px 0 5px; color:var(--text-3); font-size:11px; font-weight:500;
+      border-radius:10px; transition:color .15s; }
     .tabbar button svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.7;
       stroke-linecap:round; stroke-linejoin:round; }
     .tabbar button[data-go="settings"] svg { stroke-width:1.4; }
@@ -458,9 +533,6 @@ export const PAGE = String.raw`<!doctype html>
        would make it the anchor for the fixed action bar inside it. */
     body.reading .detail { animation:open-in .18s ease-out; }
     @keyframes open-in { from { opacity:0; } }
-    .pull { position:absolute; left:0; right:0; top:0; display:flex; justify-content:center;
-      padding-top:8px; color:var(--text-3); font-size:12px; pointer-events:none; opacity:0; transition:opacity .15s; }
-    .pull.on { opacity:1; }
   }
   /* A tap should feel like a tap: no grey flash, no text selected by accident,
      no 300ms wait. */
@@ -470,15 +542,24 @@ export const PAGE = String.raw`<!doctype html>
   .rail, .detail { overscroll-behavior:contain; -webkit-overflow-scrolling:touch; }
   @media (prefers-reduced-motion: reduce) {
     body.reading .detail { animation:none; }
+    /* The panels still move, because where they are is the information; they
+       just get there at once. */
+    .rail, .detail, .pull { transition-duration:.01ms; }
+    body.reading .actions > .menu, .scrim { animation:none; }
+    .swipe .row { transition:none !important; }
   }
 </style></head><body>
 <div class="top">
   <div class="brand">jobbot</div>
   <div class="seg" id="tabs"><button data-tab="jobs" class="on">Jobs</button><button data-tab="apps">Applied</button></div>
+  <div class="beat-row" id="beat"></div>
 
   <button class="ghost gear" id="settings" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.49 10.32 L21.72 9.67 L21.72 14.33 L18.49 13.68 L16.70 16.78 L18.88 19.25 L14.84 21.59 L13.79 18.46 L10.21 18.46 L9.16 21.59 L5.12 19.25 L7.30 16.78 L5.51 13.68 L2.28 14.33 L2.28 9.67 L5.51 10.32 L7.30 7.22 L5.12 4.75 L9.16 2.41 L10.21 5.54 L13.79 5.54 L14.84 2.41 L18.88 4.75 L16.70 7.22 Z"/><circle cx="12" cy="12" r="3.5"/></svg></button>
 </div>
 <div class="shell">
+  <div class="pull" id="pull"><i><svg viewBox="0 0 24 24" aria-hidden="true">
+    <circle class="track" cx="12" cy="12" r="8"></circle>
+    <circle class="arc" cx="12" cy="12" r="8" stroke-dashoffset="50.3"></circle></svg></i></div>
   <aside class="rail" id="rail"><div class="skel"><i></i><i></i><i></i><i></i><i></i><i></i></div></aside>
   <main class="detail" id="detail"><div class="empty-d">Pick a job to read the posting.</div></main>
 </div>
@@ -542,7 +623,7 @@ let current = null, find = "", region = "", showArchived = false, showSnoozed = 
 let selecting = false, picked = new Set(), checked = null, snoozedCount = 0, muted = [];
 let appFind = "", appOutcome = "", menuOpen = false, following = [];
 let pane = "job", filteredCount = 0, busyNow = [], waitingOn = null, owner = "", knows = [], wantedTerms = [];
-let newest = null;
+let newest = null, me = {};
 
 /* -------------------------------------------------------------- helpers -- */
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c]));
@@ -639,6 +720,26 @@ function logo(company, url, big) {
     "</span>";
 }
 
+// Some sites escape their descriptions twice, so what reaches us still has
+// "&nbsp;" and "&amp;" written out in the text. Turn those back into the
+// characters they stand for; everything is escaped again on the way to the
+// screen, so nothing here can become markup.
+const ENTITY = { nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "\u2019",
+                 rsquo: "\u2019", lsquo: "\u2018", ldquo: "\u201c", rdquo: "\u201d",
+                 mdash: "\u2014", ndash: "\u2013", hellip: "\u2026", bull: "\u2022",
+                 middot: "\u00b7", deg: "\u00b0", reg: "\u00ae", trade: "\u2122",
+                 copy: "\u00a9", frac12: "\u00bd", times: "\u00d7" };
+function unentity(text) {
+  return String(text || "").replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]{1,8});/g, (whole, name) => {
+    if (name[0] === "#") {
+      const n = name[1] === "x" || name[1] === "X" ? parseInt(name.slice(2), 16) : parseInt(name.slice(1), 10);
+      return n > 0 && n < 1114112 ? String.fromCodePoint(n) : whole;
+    }
+    const low = name.toLowerCase();
+    return low in ENTITY ? ENTITY[low] : whole;
+  });
+}
+
 // Descriptions saved before line breaks were kept arrive as one long line.
 // Break them where the posting itself changes subject: an all-caps heading,
 // or a label like "Responsibilities:".
@@ -651,7 +752,7 @@ function unflatten(text) {
 
 // The description as paragraphs and lists, the way the company wrote it.
 function posting(text) {
-  const lines = unflatten(String(text || "")).split("\n").map((l) => l.trim());
+  const lines = unflatten(unentity(text)).split("\n").map((l) => l.trim());
   let html = "", list = false, last = "";
   for (const line of lines) {
     if (!line) { continue; }
@@ -853,6 +954,7 @@ function activeChips() {
 
 function rowHtml(j) {
   const bits = [real(j.where), j.term].filter(Boolean).map((b) => "<span>" + esc(b) + "</span>").join("") +
+    (j.referred_at ? '<span class="asked">Referral asked</span>' : "") +
     (closing(j) ? '<span class="closes' + (closing(j) <= 2 ? " soon" : "") + '">' +
       (closing(j) <= 0 ? "Closes today" : "Closes in " + closing(j) + (closing(j) === 1 ? " day" : " days")) +
       "</span>" : "");
@@ -873,8 +975,32 @@ function rowHtml(j) {
     "</span></button>";
 }
 
+// Two facts, and they are different facts: when jobbot last looked, and how
+// long it has been since anyone posted anything. A quiet night then reads as a
+// quiet night instead of as jobbot being asleep.
+function renderBeat() {
+  const slot = document.getElementById("beat");
+  if (!slot) return;
+  const broke = busyNow.find((b) => b.kind === "broken");
+  const small = phone();
+  slot.innerHTML = broke
+    ? '<span class="broken">Last check failed. <a href="' + esc(broke.url || "") +
+      '" target="_blank" rel="noopener">See why</a></span><button class="link" id="recheck">Try again</button>'
+    : busyNow.length
+    ? '<span class="working"><i class="spin"></i>' + esc(busyNow.map((b) => b.says +
+        (b.n > 1 ? " (" + b.n + ")" : "")).join(", ")) + "</span>"
+    : '<span class="beat' + (checked && Date.now() - new Date(checked) > 75 * 60000 ? " cold" : "") + '">' +
+      (checked ? "Checked " + age(checked) + (small ? "" : " ago") : "Waiting for the first check") +
+      (newest ? " \u00b7 newest posting " + age(newest) + (small ? "" : " old") : "") +
+      '</span><button class="link" id="recheck">Check now</button>';
+  const again = document.getElementById("recheck");
+  if (again) again.onclick = () => checkNow();
+}
+
 function renderRail() {
   const rail = document.getElementById("rail");
+  const railY = rail.scrollTop;
+  renderBeat();
   const list = shown();
   const zone = ZONES.find(([k]) => k === view.zone) || ZONES[0];
   const groups = zone[2].map(([state, label]) => {
@@ -883,7 +1009,7 @@ function renderRail() {
   }).join("");
   const archived = list.filter((j) => j.state === "skipped");
   const EMPTY = {
-    new: ["Nothing new", "Postings appear here as jobbot finds them, within 15 minutes."],
+    new: ["Nothing new", "Postings appear here as jobbot finds them, within five minutes."],
     needs: ["Nothing needs you", "Applications that stop on a code or a question wait here."],
     progress: ["Nothing under way", "Tap Apply on a posting and its resume starts here."],
     done: ["Nothing applied this week", "Jobs you send go here, and to the Applied tab for good."],
@@ -895,18 +1021,6 @@ function renderRail() {
   rail.innerHTML =
     '<div class="tools"><div class="search"><input id="q" placeholder="Search company, role or city" value="' +
       esc(find) + '"><button class="ghost" id="sel">' + (selecting ? "Done" : "Select") + "</button></div>" +
-      '<div class="beat-row">' + (busyNow.some((b) => b.kind === "broken")
-        ? '<span class="broken">jobbot\u2019s last check failed. ' +
-          '<a href="' + esc((busyNow.find((b) => b.kind === "broken") || {}).url || "") +
-          '" target="_blank" rel="noopener">See why</a></span>' +
-          '<button class="link" id="recheck">Try again</button>'
-        : busyNow.length
-        ? '<span class="working"><i class="spin"></i>' + esc(busyNow.map((b) => b.says +
-            (b.n > 1 ? " (" + b.n + ")" : "")).join(", ")) + "</span>"
-        : '<span class="beat' + (checked && Date.now() - new Date(checked) > 75 * 60000 ? " cold" : "") + '">' +
-          (checked ? "Checked " + age(checked) + " ago" : "Waiting for jobbot’s first check") +
-          (newest ? " · newest posting " + age(newest) + " old" : "") +
-          '</span><button class="link" id="recheck">Check now</button>') + "</div>" +
       '<div class="zones">' + ZONES.map(([k, label, states]) => {
         // Counted through his filters, so the number is what the tab will show.
         const n = jobs.filter((j) => states.some(([s]) => s === j.state) && j.state !== "skipped" && passes(j)).length;
@@ -938,9 +1052,8 @@ function renderRail() {
   document.getElementById("sel").onclick = () => { selecting = !selecting; picked.clear(); renderRail(); };
   rail.querySelectorAll("[data-zone]").forEach((b) => b.onclick = () => {
     view.zone = b.dataset.zone; saveView(); renderRail();
+    rail.scrollTop = 0;                                   // a new tab starts at its top
   });
-  const again = document.getElementById("recheck");
-  if (again) again.onclick = () => checkNow();
   document.getElementById("ftoggle").onclick = () => { filtersOpen = !filtersOpen; renderRail(); };
   document.getElementById("sort").onchange = (e) => { view.sort = e.target.value; saveView(); renderRail(); };
   rail.querySelectorAll("[data-f]").forEach((b) => b.onclick = () => {
@@ -970,9 +1083,19 @@ function renderRail() {
   bindSuggestion(rail);
   const held = document.getElementById("held");
   if (held) held.onclick = () => filteredPane();
+  rail.scrollTop = railY;
 }
 
 /* --------------------------------------------------------- the posting -- */
+
+// A drag leaves the panels part-way across; this puts them back under the
+// stylesheet's control, so opening and closing are one motion either way.
+function restPanels() {
+  document.body.classList.remove("dragging");
+  const rail = document.getElementById("rail"), det = document.getElementById("detail");
+  rail.style.removeProperty("--rail-x");
+  det.style.removeProperty("--det-x");
+}
 
 function openJob(uid, fromHistory) {
   current = uid;
@@ -982,14 +1105,14 @@ function openJob(uid, fromHistory) {
   renderRail();
   renderJob();
   if (phone()) {
+    restPanels();
     document.body.classList.add("reading");
-    window.scrollTo(0, 0);
     if (!fromHistory) history.pushState({ job: uid }, "");
   }
   document.getElementById("detail").scrollTop = 0;
 }
 
-function closeJob() { document.body.classList.remove("reading"); }
+function closeJob() { document.body.classList.remove("reading"); restPanels(); }
 window.addEventListener("popstate", () => closeJob());
 // A menu closes when he taps anywhere else or presses Escape.
 function closeMenus(e) {
@@ -1018,9 +1141,9 @@ function actionsFor(j) {
   else if (j.state === "needs") main = act("applied", "I applied", "primary");
   else if (j.state === "skipped") main = act("reopen", "Put it back", "primary");
   const second = main.includes("Open application") ? "" : form;
-  return main + second +
-    (j.snoozed_until ? act("wake", "Back on the board") : '<button class="btn" data-snooze>Not now</button>') +
-    '<button class="btn" id="more">More</button>';
+  const later = j.snoozed_until ? act("wake", "Back on the board")
+    : phone() ? "" : '<button class="btn" data-snooze>Not now</button>';
+  return main + second + later + '<button class="btn" id="more">More</button>';
 }
 
 // Why he is archiving a job: each answer teaches the suggestions.
@@ -1034,6 +1157,7 @@ function menuFor(j) {
     WHY.map(([r, label]) => '<button data-why="' + r + '">' + esc(label) + "</button>").join("") + "</div>";
   const items = [
     j.state === "new" && !j.byHand ? ["draft", "Write the resume, don’t apply"] : null,
+    phone() && !j.snoozed_until ? ["snooze", "Not now"] : null,
     j.state === "needs" && j.issue && !j.byHand ? ["retry", "Try the application again"] : null,
     j.state !== "done" ? ["applied", "I applied myself"] : ["reopen", "I didn’t apply after all"],
     followed(j) ? ["unfollow", "Stop following " + j.company] : ["follow", "Follow " + j.company],
@@ -1067,11 +1191,47 @@ function finishHtml(j) {
       (btn ? '<div class="row-btns">' + btn + "</div>" : "") + "</li>").join("") + "</ol></section>";
 }
 
+// A referral gets a resume read by a person instead of a filter, and it has to
+// happen before he applies - so this sits on the posting while it is still new,
+// not in a list of things to do later. The searches are the two that work:
+// someone from his school who is already there, and whoever does university
+// hiring. The note is short because LinkedIn cuts a connection request off at
+// 300 characters.
+function referralHtml(j) {
+  if (j.state === "done" || j.state === "skipped") return "";
+  const school = me.school || "";
+  const find = (terms) => "https://www.linkedin.com/search/results/people/?keywords=" + enc(terms) +
+    "&origin=GLOBAL_SEARCH_HEADER";
+  const who = [me.name ? "I\u2019m " + me.name + ", a" : "I\u2019m a",
+               (me.major || "computer science").toLowerCase(), "student",
+               school ? "at " + school : ""].filter(Boolean).join(" ");
+  const note = "Hi - " + who + ". I\u2019m applying for the " + j.title + " at " + pretty(j.company) +
+    " and I\u2019d love a referral if you\u2019re open to it. Happy to send my resume and a couple of " +
+    "lines on why I\u2019d be useful. Either way, thanks for reading.";
+  const asked = j.referred_at;
+  return fold("referral", "Ask for a referral",
+    '<p class="quiet">One person inside is worth more than anything the resume can say. ' +
+      "Ask before you apply.</p>" +
+    '<div class="row-btns">' +
+      (school ? '<a class="btn" target="_blank" rel="noopener" href="' +
+        esc(find(pretty(j.company) + " " + school)) + '">People from ' + esc(school) + "</a>" : "") +
+      '<a class="btn" target="_blank" rel="noopener" href="' +
+        esc(find(pretty(j.company) + " university recruiter")) + '">University recruiters</a>' +
+    "</div>" +
+    '<textarea id="refnote" rows="4">' + esc(note) + "</textarea>" +
+    '<div class="row-btns"><button class="btn" id="refcopy">Copy the note</button>' +
+      '<button class="btn' + (asked ? "" : " primary") + '" id="refdone">' +
+      (asked ? "Asked " + (age(asked) ? age(asked) + " ago" : "just now") + " \u00b7 undo" : "I asked") +
+      "</button></div>",
+    asked ? "asked" : "");
+}
+
 // Sections he can fold, so a long posting does not bury his resume or the
 // answers. What he folds is remembered on this device.
 let folded = {};
 try { folded = JSON.parse(localStorage.getItem("jobbot-folded") || "{}"); } catch (e) { /* defaults */ }
-const OPEN_BY_DEFAULT = { finish: true, jd: true, resume: false, answers: true, notes: false };
+const OPEN_BY_DEFAULT = { finish: true, jd: true, resume: false, answers: true, notes: false,
+                          referral: false };
 const isOpen = (k) => (k in folded ? folded[k] : OPEN_BY_DEFAULT[k] !== false);
 function fold(key, title, inner, extra) {
   return '<details class="sec fold" data-fold="' + key + '"' + (isOpen(key) ? " open" : "") + ">" +
@@ -1097,10 +1257,11 @@ function renderJob() {
       '</h1><div class="d-meta">' + tags + "</div></div></div>" +
     // The menus open from the bar, which stays on screen as he scrolls; drawn
     // below it, they opened back at the top of the posting, out of view.
-    '<div class="actions">' + actionsFor(j) + (menuOpen ? menuFor(j) : "") + "</div>" +
+    '<div class="actions">' + actionsFor(j) + (menuOpen ? '<div class="scrim"></div>' + menuFor(j) : "") + "</div>" +
     (j.note && j.state !== "done" ? '<div class="notice">' + esc(j.note) + "</div>" : "") +
     finishHtml(j) +
     (j.knockout ? '<div class="notice">The form asks about citizenship or security clearance.</div>' : "") +
+    referralHtml(j) +
 
     fold("jd", "About the role",
       (j.jd ? '<div class="jd">' + posting(j.jd) + "</div>"
@@ -1175,6 +1336,7 @@ function wireJob(j) {
   box.querySelectorAll("[data-menu]").forEach((b) => b.onclick = () => {
     const c = b.dataset.menu;
     menuOpen = false;
+    if (c === "snooze") { renderJob(); return snoozePane(j); }
     if (c === "share") { renderJob(); return share(j); }
     if (c === "mute") return mute(j.company);
     if (c === "follow" || c === "unfollow") return follow(j.company, c === "follow");
@@ -1190,6 +1352,20 @@ function wireJob(j) {
     if (b.dataset.why === "applied") return run(j, "applied", hint());
     archive([j.uid], b.dataset.why);
   });
+  const copyRef = document.getElementById("refcopy");
+  if (copyRef) copyRef.onclick = () => {
+    const text = (document.getElementById("refnote") || {}).value || "";
+    navigator.clipboard.writeText(text).then(() => toast("Note copied"), () => toast("Could not copy"));
+  };
+  const didRef = document.getElementById("refdone");
+  if (didRef) didRef.onclick = async () => {
+    const off = !!j.referred_at;
+    j.referred_at = off ? null : new Date().toISOString();      // say so before the server does
+    renderJob(); renderRail();
+    const r = await send("/api/command", "POST", { uid: j.uid, command: "referred", off });
+    if (r.error || r.failed) { j.referred_at = off ? new Date().toISOString() : null; renderJob(); }
+    toast(r.said || r.error || "Saved");
+  };
   const nap = box.querySelector("[data-snooze]");
   if (nap) nap.onclick = () => snoozePane(j);
   document.getElementById("rewrite").onclick = async () => {
@@ -1700,7 +1876,7 @@ function followingForm() {
   const needle = key(followFind);
   const list = following.filter((f) => !needle || f.key.includes(needle) || key(f.name).includes(needle));
   return block("Companies you follow (" + following.length + ")",
-      "Their postings come first, are checked every 15 minutes, and use the longer window from Job search.",
+      "Their postings come first, are checked every five minutes, and use the longer window from Job search.",
       '<div class="addrow"><input id="follow-add" placeholder="Add a company, for example Jane Street">' +
         '<button class="btn primary" id="follow-go">Follow</button></div>' +
       '<div class="addrow" style="margin-top:8px"><input id="follow-find" placeholder="Find in the list" value="' +
@@ -1724,7 +1900,7 @@ async function settingsPane(keepScroll) {
   const s = drafts[setTab];
   const kept = ["search", "profile", "resume", "answers", "alerts"].includes(setTab);
   let body;
-  if (kept && !s) body = '<p class="quiet">jobbot sends its defaults on its next check, within 15 minutes. ' +
+  if (kept && !s) body = '<p class="quiet">jobbot sends its defaults on its next check, within five minutes. ' +
     "This section appears then.</p>";
   else if (setTab === "search") body = searchForm(s);
   else if (setTab === "profile") body = profileForm(s);
@@ -2041,7 +2217,7 @@ function switchTab(next) {
   tab = next; current = null; currentApp = null; closeJob();
   pane = next === "jobs" ? "job" : "app";
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === next));
-  document.getElementById("rail").innerHTML = '<div class="none">Loading</div>';
+  document.getElementById("rail").innerHTML = '<div class="skel"><i></i><i></i><i></i><i></i><i></i></div>';
   document.getElementById("detail").innerHTML = '<div class="empty-d">' +
     (next === "jobs" ? "Pick a job to read the posting." : "Pick an application to edit it.") + "</div>";
   load();
@@ -2050,11 +2226,26 @@ document.querySelectorAll("#tabs button").forEach((b) => b.onclick = () => switc
 // The bottom bar is the app's navigation on a phone.
 document.querySelectorAll("#tabbar button").forEach((b) => b.onclick = () => {
   const go = b.dataset.go;
+  const here = pane === "settings" ? "settings" : tab === "jobs" ? "jobs" : "apps";
+  if (go === here && !document.body.classList.contains("reading")) {
+    const rail = document.getElementById("rail");
+    return rail.scrollTo({ top: 0, behavior: "smooth" });
+  }
   if (go === "settings") { setData = null; settingsPane(); }
   else { if (pane === "settings" || pane === "muted" || pane === "filtered") pane = go === "jobs" ? "job" : "app";
          document.body.classList.remove("reading"); switchTab(go); }
   markTabbar();
 });
+function fitShell() {
+  const bar = document.getElementById("tabbar");
+  if (!bar || !phone()) return document.body.style.removeProperty("--bar-h");
+  document.body.style.setProperty("--bar-h", bar.offsetHeight + "px");
+}
+addEventListener("resize", fitShell);
+addEventListener("orientationchange", () => setTimeout(fitShell, 120));
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitShell);
+fitShell();
+
 function markTabbar() {
   const on = pane === "settings" ? "settings" : tab === "jobs" ? "jobs" : "apps";
   document.querySelectorAll("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.go === on));
@@ -2068,7 +2259,7 @@ async function loadJobs() {
   jobs = d.jobs || []; checked = d.checked || null; snoozedCount = d.snoozed || 0; muted = d.muted || [];
   following = d.following || []; filteredCount = d.filtered || 0; owner = d.owner || "";
   newest = d.newest || null;
-  knows = d.knows || []; wantedTerms = d.terms || [];
+  knows = d.knows || []; wantedTerms = d.terms || []; me = d.me || {};
   fit.clear();
   const wasBusy = busyNow.length;
   busyNow = d.running || [];
@@ -2092,6 +2283,7 @@ async function loadJobs() {
 async function loadApps(offset) {
   const d = await api("/api/applications?q=" + enc(appFind) + "&outcome=" + enc(appOutcome) + "&offset=" + (offset || 0));
   apps = offset ? { ...d, rows: apps.rows.concat(d.rows || []) } : d;
+  renderBeat();
   if (tab === "apps") renderApps();
 }
 
@@ -2103,6 +2295,7 @@ const load = () => { markTabbar(); return (tab === "jobs" ? loadJobs() : loadApp
 (() => {
   const RIGHT = { new: ["build", "Write it"], ready: ["approve", "Apply"], needs: ["applied", "Applied"],
                   skipped: ["reopen", "Put back"] };
+  const TRIP = 76;
   let row = null, job = null, x0 = 0, y0 = 0, dir = null, dx = 0;
   const rail = document.getElementById("rail");
 
@@ -2145,20 +2338,27 @@ const load = () => { markTabbar(); return (tab === "jobs" ? loadJobs() : loadApp
     e.preventDefault();
     row.style.transform = "translateX(" + dx + "px)";
     const holder = row.parentElement;
-    holder.dataset.side = dx < -20 ? "left" : dx > 20 ? "right" : "";
+    holder.dataset.side = dx < -18 ? "left" : dx > 18 ? "right" : "";
     holder.dataset.label = dx < 0 ? "Archive" : right ? right[1] : "";
+    holder.dataset.armed = Math.abs(dx) > TRIP ? "1" : "";
+    holder.style.setProperty("--sw", String(Math.min(1, Math.abs(dx) / TRIP)));
   }, { passive: false });
 
   rail.addEventListener("touchend", () => {
     if (!row || !job) { row = null; return; }
     const right = RIGHT[job.state];
-    const go = Math.abs(dx) > 88;
-    const r = row, j = job;
+    const go = Math.abs(dx) > TRIP;
+    const r = row, j = job, out = dx;
     row = null; job = null;
-    clear(r);
-    if (!go) return;
-    if (dx < 0 && j.state !== "skipped") archive([j.uid]);
-    else if (dx > 0 && right) run(j, right[0], "");
+    if (!go) return clear(r);
+    // See it off the edge before acting, so what he did is visible rather than
+    // guessed at from a row that simply vanished.
+    r.style.transition = "transform .16s ease-in";
+    r.style.transform = "translateX(" + (out < 0 ? -1 : 1) * r.offsetWidth + "px)";
+    setTimeout(() => {
+      if (out < 0 && j.state !== "skipped") archive([j.uid]);
+      else if (out > 0 && right) run(j, right[0], "");
+    }, 130);
   });
 })();
 
@@ -2168,7 +2368,7 @@ const load = () => { markTabbar(); return (tab === "jobs" ? loadJobs() : loadApp
   let x0 = null, y0 = 0, onRow = false;
   const order = () => ZONES.map(([k]) => k);
   rail.addEventListener("touchstart", (e) => {
-    onRow = !!(e.target.closest && e.target.closest(".row"));
+    onRow = !!(e.target.closest && e.target.closest(".row, .tools, .learn, .held-row"));
     x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
   }, { passive: true });
   rail.addEventListener("touchend", (e) => {
@@ -2187,22 +2387,60 @@ const load = () => { markTabbar(); return (tab === "jobs" ? loadJobs() : loadApp
   });
 })();
 
-// An open job swipes back to the list, like every other phone app.
+// Drag an open posting to the right and it follows the finger, with the list
+// coming back in behind it. Let go past a third of the way and it leaves; let
+// go short of that and it snaps back. Nothing moves until the drag is plainly
+// sideways, so reading and scrolling are never interrupted.
 (() => {
   const box = document.getElementById("detail");
-  let x0 = null, y0 = 0;
+  const rail = document.getElementById("rail");
+  let x0 = null, y0 = 0, on = false, dx = 0, t0 = 0, w = 0;
+
+  const draw = (d) => {
+    box.style.setProperty("--det-x", d + "px");
+    rail.style.setProperty("--rail-x", (-22 + 22 * Math.min(1, d / w)) + "%");
+  };
+
   box.addEventListener("touchstart", (e) => {
-    const inSlider = e.target.closest && e.target.closest("textarea, input, .actions, .jd img");
-    x0 = document.body.classList.contains("reading") && !inSlider ? e.touches[0].clientX : null;
-    y0 = e.touches[0].clientY;
+    if (!document.body.classList.contains("reading") || e.touches.length !== 1) { x0 = null; return; }
+    // Things that take a sideways drag of their own, and the text he is reading.
+    const held = e.target.closest &&
+      e.target.closest("textarea, input, select, .actions, .menu, .jd img, .paper, .shots");
+    x0 = held ? null : e.touches[0].clientX;
+    y0 = e.touches[0].clientY; on = false; dx = 0; t0 = Date.now();
+    w = box.clientWidth || window.innerWidth;
   }, { passive: true });
-  box.addEventListener("touchend", (e) => {
+
+  box.addEventListener("touchmove", (e) => {
     if (x0 === null) return;
-    const t = e.changedTouches[0];
-    const mx = t.clientX - x0, my = Math.abs(t.clientY - y0);
+    const mx = e.touches[0].clientX - x0, my = Math.abs(e.touches[0].clientY - y0);
+    if (!on) {
+      if (mx < 16) { if (mx < -8 || my > 14) x0 = null; return; }  // up, down or leftward: his scroll
+      if (my > mx * 0.7) { x0 = null; return; }
+      on = true; t0 = Date.now(); document.body.classList.add("dragging");
+    }
+    dx = Math.max(0, mx - 16);
+    e.preventDefault();
+    draw(dx);
+  }, { passive: false });
+
+  const end = () => {
+    if (x0 === null) return;
+    const flick = dx / Math.max(1, Date.now() - t0) > 0.45;
     x0 = null;
-    if (mx > 90 && my < 60) history.back();
-  });
+    if (!on) return;
+    on = false;
+    document.body.classList.remove("dragging");
+    if (dx > w * 0.32 || (flick && dx > 40)) {
+      draw(w);                                  // see it out, then drop the page
+      setTimeout(() => history.back(), 300);
+    } else {
+      draw(0);
+      setTimeout(restPanels, 340);
+    }
+  };
+  box.addEventListener("touchend", end);
+  box.addEventListener("touchcancel", end);
 })();
 
 // Ask jobbot to sweep the boards now, and watch closely for a few minutes so
@@ -2224,31 +2462,99 @@ async function checkNow() {
   watching = setTimeout(peek, 4000);
 }
 
-// Pull down at the top of the list to check the boards, as any phone app does.
+// Pull the list down and it comes with the finger, further at first and less
+// the harder he pulls, with a ring that fills as it travels. A full ring means
+// letting go checks the boards. It takes a deliberate pull, and it gives up the
+// moment the drag turns sideways or upward: an accidental check is worse than
+// no gesture at all.
 (() => {
   const rail = document.getElementById("rail");
-  let start = null, ready = false;
-  const tip = document.createElement("div");
-  tip.className = "pull";
-  tip.textContent = "Pull to check for new postings";
-  rail.style.position = "relative";
-  rail.prepend(tip);
+  const tip = document.getElementById("pull");
+  const arc = tip.querySelector(".arc");
+  const RING = 50.3, TRIP = 64, GIVE = 150, FAR = 112;
+  let y0 = 0, x0 = 0, live = false, on = false, dy = 0, busy = false;
+
+  // The list resists: 150px of finger buys 64px of travel, and it never passes
+  // FAR however hard he pulls.
+  const give = (d) => FAR * (1 - Math.exp(-d / GIVE));
+
+  function draw(d) {
+    const p = Math.min(1, d / TRIP);
+    rail.style.setProperty("--rail-y", d + "px");
+    tip.style.transform = "translate3d(0," + (d - 40) + "px,0)";
+    tip.style.opacity = String(Math.min(1, d / 24));
+    arc.setAttribute("stroke-dashoffset", String(RING - RING * p));
+    tip.classList.toggle("ready", p >= 1);
+  }
+  function rest() {
+    rail.style.removeProperty("--rail-y");
+    tip.style.transform = "";
+    tip.style.opacity = "";
+    tip.classList.remove("ready");
+  }
+
   rail.addEventListener("touchstart", (e) => {
-    start = (window.scrollY <= 0 && rail.scrollTop <= 0) ? e.touches[0].clientY : null;
-    ready = false;
+    live = !busy && e.touches.length === 1 && rail.scrollTop <= 0 &&
+           !document.body.classList.contains("reading");
+    y0 = e.touches[0].clientY; x0 = e.touches[0].clientX; on = false; dy = 0;
   }, { passive: true });
+
   rail.addEventListener("touchmove", (e) => {
-    if (start === null) return;
-    const down = e.touches[0].clientY - start;
-    ready = down > 70;
-    tip.classList.toggle("on", down > 20);
-    tip.textContent = ready ? "Release to check the boards" : "Pull to check for new postings";
+    if (!live) return;
+    const my = e.touches[0].clientY - y0, mx = Math.abs(e.touches[0].clientX - x0);
+    if (!on) {
+      if (my < 16) { if (my < -4 || mx > 12) live = false; return; }  // upward or sideways: not this
+      if (mx > my * 0.6) { live = false; return; }                    // a swipe across a row
+      on = true; document.body.classList.add("dragging");
+    }
+    dy = give(my - 16);
+    e.preventDefault();
+    draw(dy);
+  }, { passive: false });
+
+  async function go() {
+    busy = true;
+    document.body.classList.add("refreshing");
+    document.body.classList.remove("dragging");
+    draw(56);
+    // Hold the ring long enough to be read, then hand the waiting over to the
+    // line at the top of the list, which says what is happening for as long as
+    // it takes.
+    try { await Promise.all([checkNow(), new Promise((r) => setTimeout(r, 850))]); }
+    catch (err) { /* checkNow says so itself */ }
+    busy = false;
+    document.body.classList.remove("refreshing");
+    rest();
+  }
+
+  const end = () => {
+    if (!on) { live = false; return; }
+    on = false; live = false;
+    document.body.classList.remove("dragging");
+    if (dy >= TRIP) go(); else rest();
+  };
+  rail.addEventListener("touchend", end);
+  rail.addEventListener("touchcancel", end);
+})();
+
+// Reading down the list puts the search box and the filter bar away; heading
+// back up brings them straight back. The tabs stay: they are how he moves.
+(() => {
+  const rail = document.getElementById("rail");
+  let was = 0;
+  let locked = 0;
+  rail.addEventListener("scroll", () => {
+    const y = rail.scrollTop;
+    const flip = (on) => {
+      if (rail.classList.contains("tight") === on || Date.now() < locked) return;
+      rail.classList.toggle("tight", on);
+      locked = Date.now() + 320;          // the bar changes height; ignore the shove that causes
+    };
+    if (y <= 6) flip(false);
+    else if (y > was + 8 && y > 84) flip(true);
+    else if (y < was - 26) flip(false);
+    was = y;
   }, { passive: true });
-  rail.addEventListener("touchend", async () => {
-    if (ready) { tip.textContent = "Checking the boards"; await load(); await checkNow(); }
-    tip.classList.remove("on");
-    start = null; ready = false;
-  });
 })();
 load();
 // While a resume is being written or an application is being filled, the app

@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "jobbot",
+  "version": "1.0.0",
+  "description": "Your tailored resume and answers, on the form you are filling in.",
+  "permissions": ["storage", "scripting", "activeTab", "downloads"],
+  "host_permissions": ["https://*/*"],
+  "background": { "service_worker": "background.js" },
+  "options_page": "options.html",
+  "action": { "default_title": "Open jobbot on this page" },
+  "icons": { "128": "icon128.png" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.greenhouse.io/*",
+        "https://jobs.lever.co/*",
+        "https://jobs.ashbyhq.com/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.myworkdaysite.com/*",
+        "https://*.icims.com/*",
+        "https://jobs.smartrecruiters.com/*",
+        "https://*.workable.com/*",
+        "https://*.jobvite.com/*",
+        "https://*.bamboohr.com/*",
+        "https://*.dayforcehcm.com/*",
+        "https://*.oraclecloud.com/*",
+        "https://*.successfactors.com/*",
+        "https://*.eightfold.ai/*",
+        "https://*.rippling.com/*",
+        "https://www.metacareers.com/*",
+        "https://www.tesla.com/careers/*",
+        "https://jobs.apple.com/*",
+        "https://www.google.com/about/careers/*",
+        "https://jobs.careers.microsoft.com/*",
+        "https://apply.careers.microsoft.com/*",
+        "https://jobs.uber.com/*",
+        "https://www.shopify.com/careers/*",
+        "https://careers.snap.com/*",
+        "https://www.amazon.jobs/*"
+      ],
+      "js": ["content.js"],
+      "css": ["panel.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

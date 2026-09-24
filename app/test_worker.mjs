@@ -677,6 +677,45 @@ check("the page cannot be pinched out of shape", /user-scalable=no/.test(PAGE) &
 check("the icon is linked for iOS", /rel="apple-touch-icon" href="\/icon.png"/.test(PAGE));
 check("the page has no leftover style placeholders", !/\$\{/.test(PAGE.slice(0, PAGE.indexOf("<script>"))));
 
+/* ------------------------------------------------- the browser extension --- */
+{
+  // It cannot use the cookie: that is HttpOnly, and an extension's requests do
+  // not reliably carry it. It trades the passcode for the same value once.
+  check("a wrong passcode gets no key", (await body("/api/key", "POST", { passcode: "nope" })).status === 401);
+  const keyed = await body("/api/key", "POST", { passcode: "hunter2" });
+  const { key: extKey } = await keyed.json();
+  check("the right passcode gets a key", keyed.status === 200 && typeof extKey === "string" && extKey.length === 64);
+  const asExt = { "x-jobbot-key": extKey };
+  check("the key opens the same doors as the cookie", (await get("/api/jobs", asExt)).status === 200);
+  check("a made-up key does not", (await get("/api/jobs", { "x-jobbot-key": "x".repeat(64) })).status === 401);
+
+  // The form he is filling in is a different address from the posting: same host,
+  // same id, query and fragment on the end.
+  const onForm = await (await get("/api/lookup?url=" + encodeURIComponent("https://apply/?src=x#form"), asExt)).json();
+  check("the apply form finds its posting", onForm.job && onForm.job.uid === "a",
+    JSON.stringify(onForm.job && onForm.job.uid));
+  check("its answers come with it", Array.isArray(onForm.questions) && onForm.questions.length > 0);
+  const elsewhere = await (await get("/api/lookup?url=" + encodeURIComponent("https://nowhere.example/jobs/1"), asExt)).json();
+  check("a page jobbot does not know says so", elsewhere.job === null);
+
+  // A posting he found himself, on a board jobbot cannot read at all.
+  const grabbed = await (await body("/api/capture", "POST", {
+    url: "https://www.metacareers.com/jobs/12345/", company: "Meta",
+    title: "Software Engineer Intern, Summer 2027", location: "Menlo Park, CA",
+    description: "An internship for summer 2027.", where: "Meta Careers" }, asExt)).json();
+  check("a captured posting joins the board", grabbed.ok && !!grabbed.uid);
+  const twice = await (await body("/api/capture", "POST", {
+    url: "https://www.metacareers.com/jobs/12345/", company: "Meta", title: "x" }, asExt)).json();
+  check("capturing it twice does not double it", twice.uid === grabbed.uid && /already/i.test(twice.said || ""));
+  const board = await (await get("/api/jobs", asExt)).json();
+  const mine = board.jobs.find((j) => j.uid === grabbed.uid);
+  check("it arrives as new, with its term read off the title",
+    mine && mine.state === "new" && mine.term === "Summer 2027", JSON.stringify(mine && [mine.state, mine.term]));
+  check("and it says where it came from", mine && /you added this/i.test(mine.note || ""), mine && mine.note);
+  check("a capture without a link is refused",
+    (await body("/api/capture", "POST", { company: "Meta" }, asExt)).status === 400);
+}
+
 console.log();
 if (fails) { console.log(`${fails} failure(s)`); process.exit(1); }
 console.log("worker suite OK");

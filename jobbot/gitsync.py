@@ -1,6 +1,6 @@
 """Commit and push workflow state without losing a concurrent writer's changes.
 
-Several writers push to main: watch (every 15 min), resume runs, approve runs,
+Several writers push to main: watch (every 5 min), resume runs, approve runs,
 and occasional laptop commands. A plain `git pull --rebase` inside a retry loop
 left a half-finished rebase with conflict markers in data/tailored.json on
 2026-09-17, which crashed the next step.
