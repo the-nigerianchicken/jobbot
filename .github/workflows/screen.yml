@@ -20,6 +20,9 @@ on:
       limit:
         description: "Most postings to judge in one run"
         default: "25"
+      forget:
+        description: "Judge again anything turned away for a reason matching this"
+        default: ""
 
 permissions:
   contents: write
@@ -58,6 +61,12 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
+
+      # When what counts as ineligible changes, the postings already decided
+      # under the old wording have to be asked about again.
+      - name: Judge some of them again
+        if: inputs.forget != ''
+        run: python -m jobbot.screen forget --matching "${{ inputs.forget }}"
 
       - name: Pick the ones the rules cannot judge
         id: pick
@@ -112,7 +121,10 @@ jobs:
               true he can take the Canadian seat, so he is eligible.
             - Current enrolment in a Master's or PhD program, or a degree he will
               not hold.
-            - Graduating in a year other than 2027.
+            - A graduation date more than three months away from his. Booz Allen
+              asking for summer 2028 or 2029 rules him out. Notion asking to
+              "graduate before December 2027" does not: he graduates that month,
+              and a few weeks either way is his call to make, not yours.
 
             He IS eligible when the wording is any of:
             - a team, product or customer name that merely contains one of these
@@ -124,6 +136,8 @@ jobs:
             - a preference rather than a requirement ("preferred", "a plus",
               "nice to have", "ideally").
 
+            Turn a posting away only when applying to it would be pointless - a
+            requirement he cannot meet at all, not one he falls slightly short of.
             When the text does not settle it, say he IS eligible. A posting wrongly
             kept costs him one look; a posting wrongly dropped costs him the job.
 

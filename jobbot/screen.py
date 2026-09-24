@@ -86,6 +86,20 @@ def verdicts():
     return _load(KEPT, {})
 
 
+def allow(uid, why="you put it back"):
+    """He overrules the screening on one posting, for good.
+
+    Without this, bringing a posting back from Filtered out lasted until the
+    next sweep: the verdict still said no, so it was taken away again. His tap
+    beats the model, and the posting is never asked about again.
+    """
+    kept = verdicts()
+    from datetime import datetime, timezone
+    kept[uid] = {"ok": True, "why": why,
+                 "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    _save(KEPT, kept)
+
+
 def candidates(rows, decided, limit=40):
     """Postings worth asking about: a trigger in the text, no verdict yet."""
     out = []
@@ -172,9 +186,29 @@ def cmd_apply(a):
     return 0
 
 
+def cmd_forget(a):
+    """Drop verdicts whose reason matches, so they are judged again.
+
+    A verdict is kept for good, which is what stops the same posting costing
+    tokens twice - but it also means a change to what "not eligible" means
+    never reaches the postings already decided under the old wording.
+    """
+    kept = verdicts()
+    gone = [uid for uid, v in kept.items()
+            if not v.get("ok") and a.matching.lower() in (v.get("why") or "").lower()]
+    for uid in gone:
+        kept.pop(uid, None)
+    _save(KEPT, kept)
+    print(f"forgot {len(gone)} verdict(s) mentioning {a.matching!r}; they will be judged again")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="jobbot.screen", description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser("forget", help="re-judge verdicts whose reason matches some text")
+    p.add_argument("--matching", required=True)
+    p.set_defaults(fn=cmd_forget)
     p = sub.add_parser("plan", help="write the batch of postings to ask about")
     p.add_argument("--limit", type=int, default=40)
     p.set_defaults(fn=cmd_plan)

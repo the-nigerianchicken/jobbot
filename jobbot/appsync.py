@@ -207,6 +207,7 @@ EDITED, REQUESTED, MUTED, FOLLOWED = set(), set(), set(), set()
 # out fresh - forgets them and puts the job back in his feed (2026-09-21).
 MARKED = set()
 RESTORED = set()
+SCREENED = set()          # verdicts he has overruled by putting a posting back
 
 def _archive(uid, detail):
     # Kept with the job: watch drops a posting from pending.json once it is
@@ -240,6 +241,10 @@ def _restore(uid, detail):
                              "tier": 3, "reasons": ["brought back from Filtered out"],
                              "queued_at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
     tailor._save("pending.json", pending)
+    # If the screening was what turned it away, his tap overrules it for good.
+    from . import screen
+    screen.allow(uid)
+    SCREENED.add(uid)
     RESTORED.add(uid)
 
 
@@ -294,8 +299,10 @@ def pull():
                      ["data/requested.json", "data/hints.json"])
         REQUESTED.clear()
     if RESTORED:
-        gitsync.push(f"{len(RESTORED)} posting(s) brought back from Filtered out", ["data/pending.json"])
+        gitsync.push(f"{len(RESTORED)} posting(s) brought back from Filtered out",
+                     ["data/pending.json"] + (["data/screened.json"] if SCREENED else []))
         RESTORED.clear()
+        SCREENED.clear()
     if MARKED:
         gitsync.push(f"{len(MARKED)} job(s) archived, reopened or applied in the app",
                      ["data/tailored.json", "data/approvals.jsonl", "data/applications.jsonl"])
