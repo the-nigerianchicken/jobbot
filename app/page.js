@@ -474,6 +474,13 @@ export const PAGE = String.raw`<!doctype html>
     @keyframes scrim-in { from { opacity:0; } }
     .row { padding:13px 14px; }
     .jd { font-size:15.5px; }
+    /* A label beside a box leaves neither enough room on a phone. Stacked, the
+       box is the width of the screen and the hint sits under it where it reads.
+       Every form gets this: settings, answers, and adding a job by hand. */
+    .field { flex-direction:column; align-items:stretch; gap:6px; padding:12px 0; }
+    .field label { flex:none; font-size:12.5px; color:var(--text-3); }
+    .field input, .field select, .field textarea { height:42px; font-size:16px; }
+    .field textarea { height:auto; }
     .toast { --lift:calc(58px + env(safe-area-inset-bottom, 0px)); }
     body.reading .toast { --lift:calc(116px + env(safe-area-inset-bottom, 0px)); }
   }
@@ -1009,7 +1016,8 @@ function renderRail() {
   }).join("");
   const archived = list.filter((j) => j.state === "skipped");
   const EMPTY = {
-    new: ["Nothing new", "Postings appear here as jobbot finds them, within five minutes."],
+    new: ["Nothing new", "Postings appear here as jobbot finds them, within five minutes. " +
+          "Found one yourself? Add it at the bottom of this list."],
     needs: ["Nothing needs you", "Applications that stop on a code or a question wait here."],
     progress: ["Nothing under way", "Tap Apply on a posting and its resume starts here."],
     done: ["Nothing applied this week", "Jobs you send go here, and to the Applied tab for good."],
@@ -1039,7 +1047,8 @@ function renderRail() {
     (groups || empty) +
     (showArchived && archived.length ? '<div class="group">Archived <span class="n">' + archived.length + "</span></div>" +
       archived.map(rowHtml).join("") : "") +
-    '<div class="foot"><button class="link" id="arch">' + (showArchived ? "Hide archived" : "Show archived") + "</button>" +
+    '<div class="foot"><button class="link" id="add-job">Add a job yourself</button>' +
+      '<button class="link" id="arch">' + (showArchived ? "Hide archived" : "Show archived") + "</button>" +
       (snoozedCount || showSnoozed ? '<button class="link" id="naps">' +
         (showSnoozed ? "Hide snoozed" : "Snoozed (" + snoozedCount + ")") + "</button>" : "") +
       (muted.length ? '<button class="link" id="mutes">Muted companies (' + muted.length + ")</button>" : "") +
@@ -1075,6 +1084,7 @@ function renderRail() {
   });
   const many = document.getElementById("do-archive");
   if (many) many.onclick = () => { const uids = [...picked]; selecting = false; picked.clear(); archive(uids); };
+  document.getElementById("add-job").onclick = () => addPane();
   document.getElementById("arch").onclick = () => { showArchived = !showArchived; load(); };
   const naps = document.getElementById("naps");
   if (naps) naps.onclick = () => { showSnoozed = !showSnoozed; load(); };
@@ -1611,6 +1621,91 @@ async function filteredPane(keep) {
     await loadJobs();
     filteredPane(true);
   });
+}
+
+/* ------------------------------------------------------ a job he found -- */
+
+// Jobbot does not reach every board. Two of the big ones answer a browser and
+// refuse a server outright, a friend sends a link, a company posts somewhere
+// nobody indexes. A link is enough to put any of those on the board, and from
+// there it behaves like anything jobbot found itself.
+//
+// Pasting the description is worth more than it looks: a resume cannot be
+// written from a job title, and a page jobbot cannot read is the one case where
+// it has to come back and ask him for the text.
+let adding = { url: "", company: "", title: "", location: "", jd: "" };
+
+function addPane() {
+  current = null;
+  pane = "add";
+  const box = document.getElementById("detail");
+  const f = (k, label, hint) => '<div class="field"><label>' + esc(label) + '</label><div class="grow">' +
+    '<input id="add-' + k + '" value="' + esc(adding[k]) + '">' +
+    (hint ? '<div class="hint">' + esc(hint) + "</div>" : "") + "</div></div>";
+  box.innerHTML = '<div class="d"><button class="btn back" id="back">\u2039 Jobs</button>' +
+    '<h1 class="d-title">Add a job</h1>' +
+    '<p class="quiet">Somewhere jobbot cannot reach, or a link someone sent you. ' +
+      "It joins your board like any other posting, and you can ask for a resume on it.</p>" +
+    '<section class="sec">' +
+      f("url", "Link", "The posting, or the application form") +
+      f("company", "Company", "Left blank, jobbot takes it from the link") +
+      f("title", "Role") +
+      f("location", "Where") +
+    "</section>" +
+    '<section class="sec"><h2>The posting itself</h2>' +
+      '<p class="quiet">Optional, but paste it if you can: a resume cannot be written from a job ' +
+        "title, and jobbot may not be able to read the page itself.</p>" +
+      '<textarea id="add-jd" rows="7" placeholder="Paste the description here">' + esc(adding.jd) + "</textarea>" +
+    "</section>" +
+    '<div class="row-btns"><button class="btn primary" id="do-add">Add to my jobs</button>' +
+      '<button class="btn" id="add-cancel">Cancel</button></div>' +
+    '<div id="add-said" class="quiet" style="margin-top:12px"></div></div>';
+
+  if (phone() && !document.body.classList.contains("reading")) {
+    restPanels();
+    document.body.classList.add("reading");
+    history.pushState({ add: 1 }, "");
+  }
+  const keep = () => {
+    for (const k of Object.keys(adding)) {
+      const el = document.getElementById("add-" + k);
+      if (el) adding[k] = el.value;
+    }
+  };
+  box.querySelectorAll("input, textarea").forEach((el) => el.oninput = keep);
+  document.getElementById("back").onclick = () => history.back();
+  document.getElementById("add-cancel").onclick = () => history.back();
+  const go = document.getElementById("do-add");
+  go.onclick = async () => {
+    keep();
+    const said = document.getElementById("add-said");
+    const link = adding.url.trim();
+    if (!/^https?:\/\/\S+$/.test(link)) {
+      said.textContent = "That needs to be a link, starting with https://";
+      document.getElementById("add-url").focus();
+      return;
+    }
+    go.disabled = true;
+    go.classList.add("busy");
+    said.textContent = "";
+    const r = await send("/api/capture", "POST", {
+      url: link, company: adding.company.trim(), title: adding.title.trim(),
+      location: adding.location.trim(), description: adding.jd.trim(), where: "you",
+    });
+    go.disabled = false;
+    go.classList.remove("busy");
+    if (r.error) { said.textContent = r.error; return; }
+    adding = { url: "", company: "", title: "", location: "", jd: "" };
+    toast(r.said || "Added to your jobs");
+    await loadJobs();
+    if (r.uid && jobs.some((j) => j.uid === r.uid)) {
+      if (phone()) document.body.classList.remove("reading");
+      openJob(r.uid);
+    } else {
+      history.back();
+    }
+  };
+  document.getElementById("add-url").focus();
 }
 
 /* ----------------------------------------------------------- settings -- */
@@ -2234,7 +2329,8 @@ document.querySelectorAll("#tabbar button").forEach((b) => b.onclick = () => {
     return rail.scrollTo({ top: 0, behavior: "smooth" });
   }
   if (go === "settings") { setData = null; settingsPane(); }
-  else { if (pane === "settings" || pane === "muted" || pane === "filtered") pane = go === "jobs" ? "job" : "app";
+  else { if (pane === "settings" || pane === "muted" || pane === "filtered" || pane === "add")
+           pane = go === "jobs" ? "job" : "app";
          document.body.classList.remove("reading"); switchTab(go); }
   markTabbar();
 });

@@ -1379,13 +1379,26 @@ async function lookup(env, page) {
   return json({ job: best, me: facts, questions: said.questions || [], knockouts: said.knockouts || [] });
 }
 
+// Boards that put the employer's own name in the address, so a link pasted on
+// its own still makes a card with a company on it.
+const SLUGGED = /^(?:job-boards|boards|boards-api)\.greenhouse\.io|^jobs\.(?:lever\.co|ashbyhq\.com)/;
+
+function companyFromUrl(link) {
+  let u;
+  try { u = new URL(link); } catch (e) { return ""; }
+  const host = u.hostname.replace(/^www\./, "");
+  if (SLUGGED.test(host)) return (u.pathname.split("/").filter(Boolean)[0] || "").replace(/-/g, " ");
+  const bits = host.split(".").filter((p) => !["www", "jobs", "careers", "apply", "boards", "job"].includes(p));
+  return (bits.length > 1 ? bits[bits.length - 2] : bits[0] || "").replace(/-/g, " ");
+}
+
 // A posting he found himself, on a board jobbot cannot read. It joins the feed
 // as if jobbot had found it: he can ask for a resume on it like any other.
 async function capture(request, env) {
   const b = await request.json().catch(() => ({}));
   const link = String(b.url || "").slice(0, 900);
   if (!/^https?:\/\//.test(link)) return json({ error: "a link is required" }, 400);
-  const company = String(b.company || "").trim().slice(0, 120) || "Unknown";
+  const company = pretty(String(b.company || "").trim().slice(0, 120) || companyFromUrl(link) || "Unknown");
   const title = String(b.title || "").trim().slice(0, 300) || "Role";
   const digest = await crypto.subtle.digest("SHA-1", new TextEncoder().encode("you:" + link));
   const uid = [...new Uint8Array(digest)].map((x) => x.toString(16).padStart(2, "0")).join("").slice(0, 16);
@@ -1397,7 +1410,8 @@ async function capture(request, env) {
                   VALUES (?1, ?2, ?3, 1, ?4, ?5, 'you', 'you', ?1, ?6, ?7, ?8, 'new', ?9, 0, ?10, ?11, ?10)`,
     uid, company, title, termOf(title + " " + (b.description || "")), String(b.location || "").slice(0, 200),
     link, String(b.apply_url || link).slice(0, 900), b.posted_at || null,
-    "You added this from " + (b.where || "your browser"), at, String(b.description || "").slice(0, 60000));
+    b.where && b.where !== "you" ? "You added this from " + b.where : "You added this yourself",
+    at, String(b.description || "").slice(0, 60000));
   await run(env, `INSERT INTO events (uid, at, kind, detail) VALUES (?1, ?2, 'found', ?3)`,
     uid, at, JSON.stringify({ posting: { uid, company, title, url: link, source: "you" } }));
   return json({ ok: true, uid, said: "Added to your jobs" });

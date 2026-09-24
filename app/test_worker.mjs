@@ -666,7 +666,7 @@ scripts.forEach((code, i) => {
   catch (e) { check("page script " + (i + 1) + " parses", false, e.message); }
 });
 // Code pasted by a patch once landed inside <style>, where it parses as CSS.
-for (const fn of ["filteredPane", "mutedPane", "settingsPane", "snoozePane"])
+for (const fn of ["filteredPane", "mutedPane", "settingsPane", "snoozePane", "addPane", "referralHtml"])
   check(fn + " is in a script", scripts.some((c) => c.includes("function " + fn)));
 const icon = await req("/icon.png");
 check("the home-screen icon is a PNG the phone will take",
