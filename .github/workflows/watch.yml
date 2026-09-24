@@ -96,7 +96,8 @@ jobs:
       # means open-count is what he tapped Apply on, not everything found.
       - name: Start requested resumes
         env:
-          GH_TOKEN: ${{ secrets.DATA_TOKEN || secrets.GITHUB_TOKEN }}
+          # Starting a run is done in the repo the workflows live in.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HAS_CLAUDE: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         run: |
           if [ "$HAS_CLAUDE" != "true" ]; then echo "CLAUDE_CODE_OAUTH_TOKEN not set - skipping"; exit 0; fi

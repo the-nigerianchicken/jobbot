@@ -55,7 +55,7 @@ jobs:
             data/seen.json data/registry.json data/queue.json data/pending.json
       - name: Start resume builds
         env:
-          GH_TOKEN: ${{ secrets.DATA_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HAS_CLAUDE: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         run: |
           if [ "$HAS_CLAUDE" != "true" ]; then echo "no Claude token - skipping"; exit 0; fi

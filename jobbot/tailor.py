@@ -1093,8 +1093,11 @@ def cmd_autoapply(a):
         if not any(name in source for name in auto):
             print(f"{v.get('company')}: {source[:40] or 'unknown site'} is his to submit")
             continue
+        env = {**os.environ}
+        if os.environ.get("GH_CODE_TOKEN"):
+            env["GH_TOKEN"] = os.environ["GH_CODE_TOKEN"]      # runs live in the code repo
         r = subprocess.run(["gh", "workflow", "run", "approve.yml", "-R", CODE_REPO,
-                            "-f", f"issue={v['issue']}"], capture_output=True, text=True)
+                            "-f", f"issue={v['issue']}"], capture_output=True, text=True, env=env)
         if r.returncode:
             print(f"could not start the apply run for #{v['issue']}: {r.stderr.strip()[:120]}")
             continue

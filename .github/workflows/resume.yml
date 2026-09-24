@@ -259,7 +259,9 @@ jobs:
       - name: Apply where he asked for it
         if: always() && steps.pick.outputs.count != '0'
         env:
+          # Reads his issue in the private repo, starts the apply run in this one.
           GH_TOKEN: ${{ secrets.DATA_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_CODE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python -m jobbot.tailor autoapply --only "${{ matrix.uid }}"
 
       # The app is what he looks at, and it should say so as soon as this one
