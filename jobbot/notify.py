@@ -29,11 +29,16 @@ def summary_markdown(rows):
     return "\n".join(lines) + "\n"
 
 
+def _resolve(name):
+    from .paths import at
+    return str(at(name))
+
+
 def main(argv=None):
     argv = list(argv if argv is not None else sys.argv[1:])
     test = "--test" in argv
     argv = [a for a in argv if a != "--test"]
-    path = argv[0] if argv else os.path.join(ROOT, "data", "queue.json")
+    path = str(_resolve(argv[0])) if argv else str(_resolve("data/queue.json"))
     rows = json.load(open(path)) if os.path.exists(path) else []
     from .paths import CRITERIA
     crit = yaml.safe_load(open(CRITERIA, encoding="utf-8"))

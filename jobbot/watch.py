@@ -110,7 +110,10 @@ def cmd_watch(args):
 
     report(boards, postings, matches, new, drops, health, crit, args)
     if args.json_out:
-        with open(args.json_out, "w") as fh:
+        from . import paths
+        out_path = paths.at(args.json_out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_path, "w") as fh:
             json.dump([{"tier": m.tier, "reasons": m.reasons, **m.posting.to_dict()}
                        for m in new], fh, indent=2)
     return 0

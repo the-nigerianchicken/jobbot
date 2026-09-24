@@ -36,6 +36,22 @@ TARGETS = (Path(os.environ["JOBBOT_TARGETS"]) if os.environ.get("JOBBOT_TARGETS"
                  else ROOT / "jobbot" / "targets.txt"))
 
 
+def at(name):
+    """A data path given on a command line, resolved against his data folder.
+
+    The workflows say data/queue.json; with the code and his things in separate
+    repos that folder is not next to the code any more (2026-09-24: a sweep
+    crashed writing it).
+    """
+    p = Path(name)
+    if p.is_absolute():
+        return p
+    parts = p.parts
+    if parts and parts[0] == "data":
+        return DATA.joinpath(*parts[1:])
+    return p
+
+
 def inside(path):
     """A path as git needs it: relative to the checkout it will be committed in."""
     path = Path(path)
