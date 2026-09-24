@@ -79,8 +79,10 @@ jobs:
           allowed_bots: "github-actions[bot],github-actions"
           # The lightest model there is. This is one closed question about one
           # paragraph, asked a few times a day.
+          # The alias, not a dated id: a subscription token would not take
+          # "claude-haiku-4-5-20251001" and failed before making any call.
           claude_args: >-
-            --model claude-haiku-4-5-20251001
+            --model haiku
             --max-turns 4
             --allowedTools "Read,Write"
           prompt: |
