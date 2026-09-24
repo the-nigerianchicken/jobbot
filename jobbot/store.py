@@ -50,7 +50,15 @@ def mark_seen(seen, posting):
 
 
 def load_registry():
-    return _load("registry.json", {"boards": [], "stats": {}})
+    reg = _load("registry.json", {"boards": [], "stats": {}})
+    # The boards with a fetcher of their own are part of the code, so they are
+    # here whatever the file says.
+    from .direct import BUILTIN
+    have = {(b.get("source"), b.get("org")) for b in reg["boards"]}
+    for b in BUILTIN:
+        if (b["source"], b["org"]) not in have:
+            reg["boards"].append(dict(b))
+    return reg
 
 
 def save_registry(reg):

@@ -368,3 +368,20 @@ def _title_from_slug(slug):
 
 FETCHERS = {"google": google, "microsoft": microsoft, "apple": apple,
             "uber": uber, "shopify": shopify}
+
+# Boards that exist because there is code here to read them, rather than
+# because a list mentioned them. The registry gets them whether or not anyone
+# remembers to add them: the fetcher is the definition, and a registry rebuilt
+# from the lists would otherwise drop them.
+#
+# target=True means the five-minute sweep. Uber is not one: reading its board
+# means a request per posting, which belongs on the hourly pass. Snap is on
+# Workday, under a host it shares, which sources.workday now understands.
+BUILTIN = [
+    {"source": "google", "org": "google", "target": True},
+    {"source": "microsoft", "org": "microsoft", "target": True},
+    {"source": "apple", "org": "apple", "target": True},
+    {"source": "shopify", "org": "shopify", "target": True},
+    {"source": "uber", "org": "uber", "target": False},
+    {"source": "workday", "org": "snapchat|wd1.myworkdaysite.com/recruiting|snap", "target": True},
+]

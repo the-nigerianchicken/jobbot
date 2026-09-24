@@ -72,17 +72,22 @@ check("epoch milliseconds still read as this year", sources._ts(1790000000000).y
 # --- every board is reachable through the registry ---------------------------
 for name in ("google", "microsoft", "apple", "uber", "shopify"):
     check(f"{name} is a source the watcher knows", name in sources.FETCHERS)
-# The registry is his, so it lives in the private checkout and is not here when
-# only the code has been cloned.
-where = Path(__file__).resolve().parent.parent / "data" / "registry.json"
-if where.exists():
-    listed = {(b["source"], b["org"]) for b in json.loads(where.read_text())["boards"]}
-    for name in ("google", "microsoft", "apple", "uber", "shopify"):
-        check(f"{name} is in the registry", (name, name) in listed)
-    check("snap is in the registry, on Workday",
-          ("workday", "snapchat|wd1.myworkdaysite.com/recruiting|snap") in listed)
-else:
-    print("--  no registry here; that check belongs to the private checkout")
+# A board with a fetcher of its own is part of the code, so the registry has it
+# even when the registry is empty - which is what a fresh clone, or a registry
+# rebuilt from the community lists, would leave behind.
+from jobbot import store                                          # noqa: E402
+was = store._load
+store._load = lambda *a, **k: {"boards": [], "stats": {}}
+try:
+    listed = {(b["source"], b["org"]) for b in store.load_registry()["boards"]}
+finally:
+    store._load = was
+for name in ("google", "microsoft", "apple", "uber", "shopify"):
+    check(f"{name} registers itself", (name, name) in listed)
+check("snap registers itself, on Workday",
+      ("workday", "snapchat|wd1.myworkdaysite.com/recruiting|snap") in listed)
+check("every built-in board has something to read it with",
+      all(b["source"] in sources.FETCHERS for b in direct.BUILTIN))
 
 print()
 sys.exit(1 if fails else 0)
