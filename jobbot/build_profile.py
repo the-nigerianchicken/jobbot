@@ -27,9 +27,13 @@ import argparse, json, os, re, sys
 
 import yaml
 
+from .paths import DATA, PIPELINE, at as _at
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-DEFAULT_SOURCE = os.path.expanduser(
-    r"~/OneDrive/Desktop/Resumes/Applications 2026/profile.yaml")
+# His profile lives with the rest of his things. On the laptop that is still
+# the OneDrive folder, when there is one; in a run it is the private checkout.
+DEFAULT_SOURCE = str(PIPELINE / "profile.yaml") if (PIPELINE / "profile.yaml").exists() else \
+    os.path.expanduser(r"~/OneDrive/Desktop/Resumes/Applications 2026/profile.yaml")
 
 NUM_TOKEN = re.compile(r"~?\d[\d,.]*\+?\s*(?:%|(?:x|ms|s|hours?|hrs?|k|m)(?![a-z]))?|weekly|daily|minutes|hour|week", re.I)
 
@@ -169,14 +173,18 @@ def load_source(path):
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--source", default=DEFAULT_SOURCE)
-    ap.add_argument("--out", default=os.path.join(ROOT, "data", "profile.json"))
+    ap.add_argument("--out", default=str(DATA / "profile.json"))
     ap.add_argument("--strict", action="store_true", help="drop coined figures and unbuilt work")
     a = ap.parse_args(argv)
-    prof = build(load_source(a.source), a.strict)
-    with open(a.out, "w", encoding="utf-8") as fh:
+    # "pipeline/profile.yaml" on a command line means his pipeline folder,
+    # wherever that is now.
+    source, out = _at(a.source), _at(a.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    prof = build(load_source(source), a.strict)
+    with open(out, "w", encoding="utf-8") as fh:
         json.dump(prof, fh, indent=2, ensure_ascii=False)
     n = sum(len(e["facts"]) for s in ("experience", "projects") for e in prof[s])
-    print(f"wrote {a.out}: {len(prof['experience'])} roles, {len(prof['projects'])} projects, {n} facts")
+    print(f"wrote {out}: {len(prof['experience'])} roles, {len(prof['projects'])} projects, {n} facts")
     return 0
 
 

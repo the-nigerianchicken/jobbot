@@ -37,19 +37,20 @@ TARGETS = (Path(os.environ["JOBBOT_TARGETS"]) if os.environ.get("JOBBOT_TARGETS"
 
 
 def at(name):
-    """A data path given on a command line, resolved against his data folder.
+    """A path given on a command line, resolved against his things.
 
-    The workflows say data/queue.json; with the code and his things in separate
-    repos that folder is not next to the code any more (2026-09-24: a sweep
-    crashed writing it).
+    The workflows say data/queue.json and pipeline/profile.yaml, because that is
+    where those lived when the code and his things shared a repo. They do not
+    any more, and a path that still assumes they do fails at the point of use:
+    a sweep crashed writing data/queue.json, and every resume run failed reading
+    pipeline/profile.yaml four hours later (both 2026-09-24).
     """
     p = Path(name)
     if p.is_absolute():
         return p
     parts = p.parts
-    if parts and parts[0] == "data":
-        return DATA.joinpath(*parts[1:])
-    return p
+    root = {"data": DATA, "pipeline": PIPELINE, "resumes": OUT}.get(parts[0] if parts else "")
+    return root.joinpath(*parts[1:]) if root else p
 
 
 def inside(path):
