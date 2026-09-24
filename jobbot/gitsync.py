@@ -19,7 +19,8 @@ from pathlib import Path
 from .paths import PRIVATE as ROOT
 # JSON files shaped {uid: {..., "at": iso}} that several writers update; merged
 # entry by entry instead of overwritten.
-MERGED = ("data/tailored.json", "data/notified.json", "data/requested.json", "data/hints.json")
+MERGED = ("data/tailored.json", "data/notified.json", "data/requested.json", "data/hints.json",
+          "data/screened.json")
 # Append-only logs: the remote's lines, then any of ours it lacks.
 APPENDED = ("data/approvals.jsonl", "data/applications.jsonl")
 

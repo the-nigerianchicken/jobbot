@@ -107,9 +107,32 @@ def candidates(rows, decided, limit=40):
     return out
 
 
+def still_standing(rows):
+    """The postings the rules have not already decided.
+
+    Measured on the first real batch (2026-09-24): of ten the model turned
+    away, seven were ones the phrase rules caught anyway. Asking about those
+    costs tokens and tells him nothing - the only verdicts worth paying for are
+    on postings that are still on his board after every free rule has run.
+    """
+    from . import match, tailor, watch
+    crit, targets = watch.load_criteria(None), watch.load_targets()
+    match.screened(refresh=True)
+    out = []
+    for t in rows:
+        try:
+            m, _ = match.classify(tailor.to_posting(t), crit, targets)
+        except Exception:                      # noqa: BLE001 - a row we cannot read is a row we ask about
+            out.append(t)
+            continue
+        if m is not None:
+            out.append(t)
+    return out
+
+
 def cmd_plan(a):
     """Write the batch, if there is one. Prints the count for the workflow."""
-    rows = list(_load("data/pending.json", {}).values())
+    rows = still_standing(list(_load("data/pending.json", {}).values()))
     ask = candidates(rows, verdicts(), a.limit)
     _save(ASK, ask)
     out = os.environ.get("GITHUB_OUTPUT")
