@@ -164,6 +164,13 @@ def runs():
 def job_rows():
     ledger, pending = tailor._load("tailored.json", {}), tailor._load("pending.json", {})
     approved, last, want = tailor.approved_uids(), runs(), tailor.requested()
+    # Postings a model read and found he cannot take. The rules stop matching
+    # them, but they were already on the board from an earlier sweep, and this
+    # list is what tells the app what jobbot still knows about - so without
+    # this they simply stayed there (2026-09-24). Anything he has since acted on
+    # is his: only jobbot's own untouched states are withdrawn.
+    from .screen import verdicts
+    turned = {uid for uid, v in verdicts().items() if not v.get("ok")}
     rows = []
     for uid, v in ledger.items():
         run, status = last.get(uid), v.get("status")
@@ -216,6 +223,11 @@ def job_rows():
     prior = tailor.prior_applications()
     for uid, t in pending.items():
         if uid in ledger:
+            continue
+        # One the screening turned away, and which he has not touched: it stops
+        # being something jobbot knows about, so the app drops it and shows it
+        # in Filtered out with the reason instead.
+        if uid in turned and uid not in want and uid not in approved:
             continue
         # A posting he never asked about is not written for, and after a week
         # it stops taking up room in the feed.
