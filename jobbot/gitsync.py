@@ -32,9 +32,23 @@ def git(*args, check=False):
 
 
 def merge_ledgers(theirs, mine):
+    """Entry by entry, newest wins.
+
+    Not every one of these files holds objects: hints.json is {uid: "what he
+    typed"}, and a plain string has no "at" to compare. From 2026-09-24 15:52
+    that crashed every watch run for four hours - a note he wrote on one job
+    stopped the whole sweep, and kept stopping it on every retry. Where there
+    is no timestamp to go on, what is being written now wins: it is his own
+    latest word on that job.
+    """
     out = dict(theirs)
     for uid, v in mine.items():
-        if uid not in out or (v.get("at") or "") >= (out[uid].get("at") or ""):
+        if uid not in out:
+            out[uid] = v
+            continue
+        when = v.get("at") if isinstance(v, dict) else None
+        theirs_when = out[uid].get("at") if isinstance(out[uid], dict) else None
+        if when is None or theirs_when is None or when >= theirs_when:
             out[uid] = v
     return out
 

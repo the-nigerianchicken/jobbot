@@ -1137,6 +1137,7 @@ function actionsFor(j) {
   if (j.state === "new") main = act("build", j.byHand ? "Write my resume" : "Apply for me", "primary");
   else if (j.state === "ready" && !j.byHand) main = act("approve", "Apply for me", "primary");
   else if (j.state === "ready" && j.byHand && j.apply_url) main = link(j.apply_url, "Open application", "primary");
+  else if (j.state === "building") main = act("stop", "Stop writing it");
   else if (j.state === "working") main = act("stop", "Stop applying");
   else if (j.state === "needs") main = act("applied", "I applied", "primary");
   else if (j.state === "skipped") main = act("reopen", "Put it back", "primary");
@@ -1387,11 +1388,12 @@ function wireJob(j) {
 const GUESS = { build: ["building", "Writing your resume"], draft: ["building", "Writing your resume"],
                 approve: ["working", "Applying"], retry: ["working", "Trying again"],
                 applied: ["done", "You applied"], rebuild: ["building", "Writing it again"],
-                reopen: ["new", null], stop: ["ready", null] };
+                reopen: ["new", null],
+                stop: (j) => (j.state === "building" && !j.folder ? ["new", null] : ["ready", null]) };
 
 async function run(j, c, hint) {
   const was = { state: j.state, note: j.note };
-  const guess = GUESS[c];
+  const guess = typeof GUESS[c] === "function" ? GUESS[c](j) : GUESS[c];
   if (guess) {
     j.state = guess[0]; j.note = guess[1];
     renderRail(); if (pane === "job") renderJob();

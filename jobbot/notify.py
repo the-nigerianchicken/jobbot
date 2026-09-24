@@ -1,11 +1,18 @@
-"""Surface new matches to the user.
+"""Write the run's summary, and say what was found.
 
-GitHub only emails on a failed run, so the watcher deliberately exits nonzero
-when a new tier-1/2 posting appears: a red Actions tab means good news. Set
-notify.fail_on_match: false in criteria.yaml to turn that off.
+This used to fail the run on purpose whenever a tier-1/2 posting appeared,
+because a failed run was the only way GitHub would send an email. That was
+before the app could reach his phone. Now it means two bad things at once: an
+email for every good posting (2026-09-24: he asked why he gets so many), and a
+red run that says nothing about whether anything is actually broken - which is
+the signal the app uses to tell him jobbot has stopped working.
+
+The app announces postings now, with his own switches for which ones. A red run
+here means a red run. Set notify.fail_on_match: true in criteria.yaml to bring
+the old emails back.
 
 Usage: python -m jobbot.notify data/queue.json [--test]
-  --test  exit 1 regardless of matches, to check the alert actually reaches you
+  --test  exit 1 regardless of matches, to check a failure still reaches you
 """
 import json, os, sys
 
@@ -56,7 +63,7 @@ def main(argv=None):
         print("TEST ALERT - failing on purpose; if GitHub emailed you, alerts work", file=sys.stderr)
         return 1
     hot = [r for r in rows if r.get("tier") in alert_tiers]
-    if hot and cfg.get("fail_on_match", True):
+    if hot and cfg.get("fail_on_match", False):
         print(f"{len(hot)} tier {sorted(alert_tiers)} match(es) - exiting 1 so GitHub notifies",
               file=sys.stderr)
         return 1

@@ -278,6 +278,10 @@ async function jobs(env, url) {
       note = byHand
         ? "This site cannot be filled in automatically - open the form and finish it"
         : "The apply run did not finish - open the form and finish it, or try again";
+    } else if (state === "building" && (r.updated_at || "") < stale) {
+      // A resume takes a few minutes. Three quarters of an hour means the run
+      // died without saying so, and the card should not go on claiming work.
+      note = "This has been writing for a while - the run may have died. Stop it and ask again.";
     } else if (state === "ready" && byHand) {
       note = note || "You finish this one: open the form, the answers below are ready to paste";
     }
@@ -522,6 +526,8 @@ const COMMANDS = {
   retry: { state: "working", note: "Trying again", said: "Trying the form again" },
   applied: { state: "done", note: "You applied", said: "Recorded as applied" },
   rebuild: { state: "building", note: "Writing the resume again", said: "Rebuilding the resume" },
+  // Where stopping puts a job depends on what it was doing: a resume that was
+  // being written leaves nothing behind, so the posting goes back to new.
   stop: { state: "ready", note: null, said: "Stopped" },
   archive: { state: "skipped", note: "Archived", said: "Archived" },
   skip: { state: "skipped", note: "Archived", said: "Archived" },     // the issue comment still says /skip
@@ -639,7 +645,11 @@ async function command(request, env) {
   let ok = true, applied = null;
   for (const job of jobs) {
     // Reopening a job he archived: back to wherever it actually got to.
-    const state = b.command === "reopen" && job.folder ? "ready" : c.state;
+    // Stopping a resume that was being written: back to a posting he has not
+    // asked about, because nothing was written.
+    const state = b.command === "reopen" && job.folder ? "ready"
+      : b.command === "stop" && job.state === "building" && !job.folder ? "new"
+      : c.state;
     await run(env, `UPDATE jobs SET state = ?1, note = ?2, updated_at = ?3 WHERE uid = ?4`,
       state, c.note, now(), job.uid);
     await run(env, `INSERT INTO events (uid, at, kind, detail) VALUES (?1, ?2, ?3, ?4)`,
@@ -677,12 +687,50 @@ async function command(request, env) {
     const started = await startResumes(env);
     if (!started) said = "Asked for. It starts at the next check, within five minutes.";
   }
+  if (b.command === "stop") {
+    const job = jobs[0];
+    const which = job && job.state === "building" ? "resume.yml" : "approve.yml";
+    const kill = stopRun(env, which, job ? job.uid : "", which === "resume.yml");
+    if (env.later) env.later(kill);
+    said = job && job.state === "building"
+      ? "Stopped. It is back on the board."
+      : "Stopped. Nothing was sent unless the form had already gone through.";
+  }
   if (b.command === "retry") {
     const issue = jobs[0] && jobs[0].issue;
     const started = issue && await startApply(env, issue);
     if (!started) said = "Could not start it. Open the form and finish it yourself.";
   }
   return json({ ok, state: c.state, said, count: jobs.length, applied });
+}
+
+// Stopping has to stop the work, not just move the card. Until now it changed
+// the row and left the run going, so a resume he had cancelled arrived a few
+// minutes later and moved the card back (2026-09-24, he asked why he cannot
+// stop a resume).
+//
+// A resume run writes one posting per runner, so cancelling it is only safe
+// when every runner still going is writing this one. When it is not, the run
+// finishes and ingest throws the result away instead. An apply run has a
+// concurrency group of one, so the run in flight is his.
+async function stopRun(env, which, uid, mineOnly) {
+  const live = await gh(env, `/repos/${codeRepo(env)}/actions/workflows/${which}/runs?status=in_progress&per_page=5`)
+    .catch(() => null);
+  if (!live || !live.ok) return false;
+  const runs = ((await live.json().catch(() => ({}))).workflow_runs || []);
+  for (const r of runs) {
+    if (mineOnly) {
+      const legs = await gh(env, `/repos/${codeRepo(env)}/actions/runs/${r.id}/jobs?per_page=40`).catch(() => null);
+      if (!legs || !legs.ok) continue;
+      const going = ((await legs.json().catch(() => ({}))).jobs || []).filter((x) => x.status !== "completed");
+      const his = going.filter((x) => String(x.name || "").includes(uid));
+      if (!his.length || his.length !== going.length) continue;   // someone else's resume is in there
+    }
+    const killed = await gh(env, `/repos/${codeRepo(env)}/actions/runs/${r.id}/cancel`, { method: "POST" })
+      .catch(() => null);
+    if (killed && killed.ok) return true;
+  }
+  return false;
 }
 
 // The apply run refuses a job it has already tried, so a deliberate retry
@@ -762,7 +810,12 @@ async function ingest(request, env) {
   for (const j of rows) {
     if (!j || !j.uid || !j.company) continue;
     const have = await one(env, `SELECT state, updated_at FROM jobs WHERE uid = ?1`, j.uid);
-    const keep = !!have && HIS.has(have.state) && (have.updated_at || "") > fresh && !HIS.has(j.state);
+    const his = !!have && (have.updated_at || "") > fresh;
+    // A job he just stopped is back at new. A run that was already writing it
+    // finishes and reports "ready", and without this the card he cancelled
+    // reappears a few minutes later as if he had never touched it.
+    const stopped = his && have.state === "new" && (j.state === "building" || j.state === "ready");
+    const keep = (his && HIS.has(have.state) && !HIS.has(j.state)) || stopped;
     const values = JOB_COLS.map((c) => (c === "knockout" ? (j[c] ? 1 : 0) : (j[c] ?? null)));
     const marks = JOB_COLS.map((_, i) => `?${i + 1}`).join(", ");
     const updates = JOB_COLS.slice(1).filter((c) => !(keep && (c === "state" || c === "note")))

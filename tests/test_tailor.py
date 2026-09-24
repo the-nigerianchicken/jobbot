@@ -147,6 +147,18 @@ check("approved counts as applied", "a" in tailor.approved_uids())
 check("issue links pdf and apply", "resumes/A/B/x.pdf" in body and "https://a" in body)
 check("issue lists labels", "COINED_METRIC" in body and "/approve" in body)
 
+# --- taking a request back ---------------------------------------------------
+# Stopping a resume has to stop the next plan from picking the posting straight
+# back up, or the card he cancelled starts building again a minute later.
+tailor._save("requested.json", {"w1": {"apply": True, "at": "2026-09-24T00:00:00+00:00"}})
+tailor._save("tailored.json", {"w1": {"status": "in_progress", "company": "Writing"},
+                               "w2": {"status": "resume_ready", "folder": "resumes/W/2"}})
+check("a request he takes back is gone", tailor.withdraw("w1") and "w1" not in tailor.requested())
+check("and so is the half-written ledger row", "w1" not in tailor._load("tailored.json", {}))
+check("a resume that exists is left alone", not tailor.withdraw("w2")
+      and tailor._load("tailored.json", {}).get("w2", {}).get("folder") == "resumes/W/2")
+check("withdrawing something nobody asked for changes nothing", not tailor.withdraw("w3"))
+
 print()
 if fails:
     print(f"{len(fails)} failure(s)"); sys.exit(1)

@@ -127,6 +127,20 @@ def _build(uid, detail):
           + (" (and apply)" if want["apply"] else ""))
 
 
+def _stop(uid, detail):
+    """He stopped it from the app.
+
+    The app cancels the run itself where cancelling it costs nothing else; this
+    is the other half, and the half that matters when the run has not started:
+    the request is taken back, so the next plan does not pick the posting up
+    again a minute later.
+    """
+    if tailor.withdraw(uid):
+        REQUESTED.add(uid)
+        MARKED.add(uid)
+        print(f"app: took back the resume request for {detail.get('company') or uid}")
+
+
 def _rebuild(uid, detail):
     """Write it again - usually because he said what to change."""
     _hint(uid, detail)
@@ -243,10 +257,10 @@ HANDLERS = {
     "unmute": _unmute,
     "follow": lambda uid, d: _follow(uid, d, True),
     "unfollow": lambda uid, d: _follow(uid, d, False),
-    # approve and stop are carried out by the workflows the issue comment starts;
-    # there is nothing to write here.
+    # approve is carried out by the workflow the app starts; there is nothing
+    # to write here.
     "approve": lambda uid, d: None,
-    "stop": lambda uid, d: None,
+    "stop": _stop,
 }
 
 

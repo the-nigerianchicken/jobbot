@@ -677,6 +677,56 @@ check("the page cannot be pinched out of shape", /user-scalable=no/.test(PAGE) &
 check("the icon is linked for iOS", /rel="apple-touch-icon" href="\/icon.png"/.test(PAGE));
 check("the page has no leftover style placeholders", !/\$\{/.test(PAGE.slice(0, PAGE.indexOf("<script>"))));
 
+/* --------------------------------------------------------------- stopping --- */
+// A resume being written used to have no way out of the app at all: the card
+// said "Writing your resume" and offered nothing, and the run carried on.
+{
+  const card = (uid, board) => board.jobs.find((j) => j.uid === uid);
+  // Its own posting: the seeded ones have been pushed around by earlier checks.
+  await body("/api/ingest", "POST", { jobs: [
+    { uid: "w", company: "writing", title: "SWE Intern, Summer 2027", tier: 1, state: "building",
+      note: "Writing your resume", posted_at: iso(0.1), seen_at: iso(0.1) }] },
+    { authorization: "Bearer robot" });
+
+  const stopped = await (await body("/api/command", "POST", { uid: "w", command: "stop" }, as)).json();
+  check("a resume being written can be stopped", stopped.ok === true);
+  let board = await (await get("/api/jobs", as)).json();
+  check("and the posting goes back to new, because nothing was written",
+    card("w", board).state === "new", card("w", board).state);
+  check("the app says where it went", /back on the board/i.test(stopped.said || ""), stopped.said);
+
+  // The run that was already writing it finishes a minute later and reports in.
+  await body("/api/ingest", "POST", { jobs: [
+    { uid: "w", company: "writing", title: "SWE Intern, Summer 2027", state: "ready",
+      folder: "resumes/W/X", pdf: "resumes/W/X/x.pdf", seen_at: iso(0.1) }] },
+    { authorization: "Bearer robot" });
+  board = await (await get("/api/jobs", as)).json();
+  check("a run finishing afterwards does not undo the stop",
+    card("w", board).state === "new", card("w", board).state);
+
+  // Stopping an application is different: the resume it was applying with is
+  // still there, so the job goes back to ready rather than to new.
+  await body("/api/ingest", "POST", { jobs: [
+    { uid: "v", company: "vega", title: "SWE Intern, Summer 2027", tier: 1, state: "ready",
+      folder: "resumes/V/X", pdf: "resumes/V/X/x.pdf", apply_url: "https://boards.greenhouse.io/v/jobs/1",
+      posted_at: iso(0.1), seen_at: iso(0.1) }] }, { authorization: "Bearer robot" });
+  await body("/api/command", "POST", { uid: "v", command: "approve" }, as);
+  board = await (await get("/api/jobs", as)).json();
+  check("applying moves it to working", card("v", board).state === "working",
+    JSON.stringify(card("v", board) && card("v", board).state));
+  const halted = await (await body("/api/command", "POST", { uid: "v", command: "stop" }, as)).json();
+  board = await (await get("/api/jobs", as)).json();
+  check("stopping an application leaves the resume ready", card("v", board).state === "ready",
+    JSON.stringify(card("v", board) && card("v", board).state));
+  check("and is honest about what may already have been sent",
+    /already gone through/i.test(halted.said || ""), halted.said);
+
+  // Cancelling the run is asked of GitHub, not just of the database.
+  check("stopping asks GitHub to cancel the run",
+    calls.some((c) => /actions\/runs\/.*\/cancel/.test(c.url) || /runs\?status=in_progress/.test(c.url)),
+    calls.slice(-4).map((c) => c.url).join(" | "));
+}
+
 /* ------------------------------------------------- the browser extension --- */
 {
   // It cannot use the cookie: that is HttpOnly, and an extension's requests do

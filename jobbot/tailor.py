@@ -306,6 +306,28 @@ def request(uid, apply=True, **extra):
     return want[uid]
 
 
+def withdraw(uid):
+    """He stopped a resume before it was written.
+
+    Taking the request back is enough on its own: a posting nobody has asked
+    about is not written (criteria: resumes.on_request), so the posting goes
+    back to being a posting. The ledger is only cleared when a run had started
+    and produced nothing - a resume that exists on disk is his, whatever he
+    tapped, and gets left alone.
+    """
+    want = requested()
+    asked = want.pop(uid, None) is not None
+    if asked:
+        _save("requested.json", want)
+    ledger = _load("tailored.json", {})
+    row = ledger.get(uid) or {}
+    started = row.get("status") in ("in_progress", "retry") and not row.get("folder")
+    if started:
+        ledger.pop(uid, None)
+        _save("tailored.json", ledger)
+    return asked or started
+
+
 def on_request():
     return bool((watch.load_criteria().get("resumes") or {}).get("on_request", False))
 
