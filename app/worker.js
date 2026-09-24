@@ -87,6 +87,7 @@ export default {
 
 // Alive means: the last sweep succeeded, and one has run in the last two hours.
 async function health(env) {
+  const on = await wants(env).catch(() => ({ problems: true }));
   const [beat, was] = await Promise.all([
     one(env, `SELECT value FROM meta WHERE key = 'checked'`),
     one(env, `SELECT value FROM meta WHERE key = 'health'`),
@@ -104,7 +105,7 @@ async function health(env) {
   if (state === "ok") return state;
   await run(env, `INSERT INTO meta (key, value, at) VALUES ('health_said', ?1, ?2)
                   ON CONFLICT(key) DO UPDATE SET value = excluded.value, at = excluded.at`, said, now());
-  await wake(env);
+  if (on.problems !== false) await wake(env);
   return state;
 }
 
@@ -276,6 +277,9 @@ async function jobs(env, url) {
   const counts = {};
   for (const j of out) counts[j.state] = (counts[j.state] || 0) + 1;
   const beat = await one(env, `SELECT value FROM meta WHERE key = 'checked'`);
+  // When anything was last posted anywhere, so a quiet night reads as a quiet
+  // night rather than as jobbot being asleep.
+  const newest = await one(env, `SELECT MAX(posted_at) at FROM jobs WHERE state != 'skipped'`);
   const held = await one(env, `SELECT COUNT(*) n FROM filtered WHERE uid NOT IN (SELECT uid FROM jobs)`);
   // Whose resumes these are, for the file names. It comes from his settings, so
   // the code carries no name of its own.
@@ -293,7 +297,7 @@ async function jobs(env, url) {
                 // The terms he wants, so a posting for one he does not can be
                 // ranked below the rest rather than sitting at the top.
                 terms: await wantedTerms(env),
-                checked: beat ? beat.value : null, at: now() });
+                checked: beat ? beat.value : null, newest: newest ? newest.at : null, at: now() });
 }
 
 // Boards list the same role once per city; he should see one card.
@@ -850,7 +854,7 @@ function plainReason(r, title) {
 
 /* ------------------------------------------------------------- settings --- */
 
-const SETTINGS = ["search", "profile", "resume", "answers"];
+const SETTINGS = ["search", "profile", "resume", "answers", "alerts"];
 const parse = (s) => (s == null ? null : JSON.parse(s));
 
 // His value where he changed it from the default he saw; the current default
@@ -1095,20 +1099,34 @@ async function wake(env) {
 // What is worth interrupting him for, and what it should say.
 const TELL = {
   // A posting at a company he follows is the one thing worth interrupting him
-  // for the moment it appears: those are the ones that fill fastest.
-  new: (j) => (j.tier === 1 ? ["New at " + pretty(j.company), j.title] : null),
+  // for the moment it appears: those are the ones that fill fastest. Whether
+  // the rest of the board reaches him too is a setting.
+  new: (j) => ["New at " + pretty(j.company), j.title],
   ready: (j) => ["Resume ready", pretty(j.company) + " - " + j.title],
   needs: (j) => ["Needs you", pretty(j.company) + " - " + (j.note || "this one needs you")],
   done: (j) => ["Applied", pretty(j.company) + " - " + j.title],
 };
 
+// What he has asked to hear about. Anything not set yet follows the default:
+// a company he follows, and anything that needs him.
+async function wants(env) {
+  const row = await one(env, `SELECT base, value, value_base FROM settings WHERE key = 'alerts'`);
+  const fallback = { followed: true, any_new: false, ready: true, needs: true, applied: true, problems: true };
+  if (!row || !row.base) return fallback;
+  const base = parse(row.base);
+  return { ...fallback, ...(row.value ? merge3(base, parse(row.value_base), parse(row.value)) : base) };
+}
+
 async function announce(env, jobs) {
   if (!env.VAPID_PRIVATE) return 0;
+  const on = await wants(env);
   const subs = await one(env, `SELECT COUNT(*) n FROM push_subs`);
   if (!subs || !subs.n) return 0;
   let fresh = 0;
   for (const j of jobs) {
     if (!TELL[j.state] || !TELL[j.state](j)) continue;
+    if (j.state === "new" && !(on.followed && j.tier === 1) && !on.any_new) continue;
+    if (j.state !== "new" && on[j.state] === false) continue;
     const had = await one(env, `SELECT 1 x FROM push_sent WHERE uid = ?1 AND state = ?2`, j.uid, j.state);
     if (had) continue;
     await run(env, `INSERT OR REPLACE INTO push_sent (uid, state, at) VALUES (?1, ?2, ?3)`, j.uid, j.state, now());

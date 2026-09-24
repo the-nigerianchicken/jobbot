@@ -542,6 +542,7 @@ let current = null, find = "", region = "", showArchived = false, showSnoozed = 
 let selecting = false, picked = new Set(), checked = null, snoozedCount = 0, muted = [];
 let appFind = "", appOutcome = "", menuOpen = false, following = [];
 let pane = "job", filteredCount = 0, busyNow = [], waitingOn = null, owner = "", knows = [], wantedTerms = [];
+let newest = null;
 
 /* -------------------------------------------------------------- helpers -- */
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c]));
@@ -903,7 +904,8 @@ function renderRail() {
         ? '<span class="working"><i class="spin"></i>' + esc(busyNow.map((b) => b.says +
             (b.n > 1 ? " (" + b.n + ")" : "")).join(", ")) + "</span>"
         : '<span class="beat' + (checked && Date.now() - new Date(checked) > 75 * 60000 ? " cold" : "") + '">' +
-          (checked ? "Boards checked " + age(checked) + " ago" : "Waiting for jobbot’s first check") +
+          (checked ? "Checked " + age(checked) + " ago" : "Waiting for jobbot’s first check") +
+          (newest ? " · newest posting " + age(newest) + " old" : "") +
           '</span><button class="link" id="recheck">Check now</button>') + "</div>" +
       '<div class="zones">' + ZONES.map(([k, label, states]) => {
         // Counted through his filters, so the number is what the tab will show.
@@ -1655,6 +1657,7 @@ async function turnPushOff() {
 async function alertsForm() {
   const state = await pushState();
   const d = await api("/api/push").catch(() => ({ devices: 0 }));
+  const a = drafts.alerts;
   const says = {
     unsupported: "This browser cannot show notifications. Open the app in Safari or Chrome.",
     "needs-home-screen": "Add jobbot to your Home Screen first: tap Share, then Add to Home Screen, " +
@@ -1671,7 +1674,15 @@ async function alertsForm() {
       '<button class="btn danger" id="push-off">Turn off</button></div>'
       : state === "off" ? '<div class="row-btns"><button class="btn primary" id="push-on">Turn on notifications</button></div>' : "") +
     (d.devices ? '<p class="quiet" style="margin-top:12px">' + d.devices +
-      (d.devices === 1 ? " device is" : " devices are") + " subscribed.</p>" : ""));
+      (d.devices === 1 ? " device is" : " devices are") + " subscribed.</p>" : "")) +
+    (a ? block("What to tell you about", "",
+      toggle("followed", "A company you follow posts", a.followed, "The ones that fill fastest") +
+      toggle("any_new", "Any posting that fits your rules", a.any_new, "Everything else on the board") +
+      toggle("ready", "A resume is ready", a.ready) +
+      toggle("needs", "An application needs you", a.needs) +
+      toggle("applied", "An application was sent", a.applied) +
+      toggle("problems", "jobbot stops working", a.problems, "A failed check, or nothing checked in two hours"))
+      : "");
 }
 
 function lookForm() {
@@ -1711,7 +1722,7 @@ async function settingsPane(keepScroll) {
     try { await loadSettings(); } catch (e) { setData = {}; }
   }
   const s = drafts[setTab];
-  const kept = ["search", "profile", "resume", "answers"].includes(setTab);
+  const kept = ["search", "profile", "resume", "answers", "alerts"].includes(setTab);
   let body;
   if (kept && !s) body = '<p class="quiet">jobbot sends its defaults on its next check, within 15 minutes. ' +
     "This section appears then.</p>";
@@ -2056,6 +2067,7 @@ async function loadJobs() {
   const d = await api("/api/jobs" + (q ? "?" + q : ""));
   jobs = d.jobs || []; checked = d.checked || null; snoozedCount = d.snoozed || 0; muted = d.muted || [];
   following = d.following || []; filteredCount = d.filtered || 0; owner = d.owner || "";
+  newest = d.newest || null;
   knows = d.knows || []; wantedTerms = d.terms || [];
   fit.clear();
   const wasBusy = busyNow.length;

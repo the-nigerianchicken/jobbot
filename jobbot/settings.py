@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # than at what he has saved in the app.
 from . import paths, store
 FILE = Path(store.DATA) / "settings.json"
-SECTIONS = ("search", "profile", "resume", "answers")
+SECTIONS = ("search", "profile", "resume", "answers", "alerts")
 
 # Terms he can pick. Any he does not want are dropped when a posting names them.
 SEASONS = ["Fall 2026", "Winter 2027", "Spring 2027", "Summer 2027", "Fall 2027",
@@ -213,11 +213,18 @@ def answers_base(bank=None, profile=None):
     }
 
 
+def alerts_base():
+    """What reaches his phone. His call, 2026-09-24: the companies he follows
+    are worth an interruption; the rest of the board can wait for him."""
+    return {"followed": True, "any_new": False, "ready": True, "needs": True,
+            "applied": True, "problems": True}
+
+
 def bases():
     """What the app shows as the default for each section."""
     profile = _raw_profile()
     return {"search": search_base(), "profile": profile_base(profile), "resume": resume_base(),
-            "answers": answers_base(profile=profile)}
+            "answers": answers_base(profile=profile), "alerts": alerts_base()}
 
 
 def _raw_profile():
