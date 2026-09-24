@@ -54,6 +54,12 @@ def cmd_watch(args):
     if args.only:
         boards = [b for b in boards if b[0] == args.only]
 
+    # Say what the screening has decided, so a verdict that never reaches the
+    # rules shows up here rather than as silence.
+    from . import screen as _screen
+    _said = _screen.verdicts()
+    print(f"screened: {len(_said)} judged, {sum(1 for v in _said.values() if not v.get('ok'))} he cannot take")
+
     postings, health = sources.fetch_all(boards, max_workers=args.workers)
     # The community lists repeat postings jobbot reads itself; keep the native copy.
     postings = community.dedupe(postings, store.load_seen())
