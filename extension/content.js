@@ -245,7 +245,7 @@
         .replace(/[^A-Za-z0-9 _.-]+/g, "").replace(/\s+/g, "_") + ".pdf";
       const r = await ask({ kind: "resume", path: j.pdf, name });
       busy = false;
-      say(r.error || "Saved to your downloads", r.error ? "bad" : "");
+      say(r.error || r.said || "Saved to your downloads", r.error ? "bad" : "");
       return;
     }
     if (go === "fill") {

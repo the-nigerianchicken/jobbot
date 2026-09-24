@@ -44,7 +44,11 @@ async function resume(path, name) {
   const id = await chrome.downloads.download({
     url: "data:application/pdf;base64," + btoa(binary), filename: name, saveAs: false,
   }).catch(() => null);
-  return id ? { ok: true, name } : { error: "the download was refused" };
+  if (id) return { ok: true, name };
+  // If the download is refused, open it instead: the tab carries his own
+  // session cookie for jobbot, so the file still arrives.
+  await chrome.tabs.create({ url, active: true }).catch(() => null);
+  return { ok: true, name, said: "Opened it in a tab" };
 }
 
 const HANDLERS = {
