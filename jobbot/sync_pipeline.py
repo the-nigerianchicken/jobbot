@@ -22,7 +22,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = Path(os.environ.get("JOBBOT_APPS") or
               Path.home() / "OneDrive" / "Desktop" / "Resumes" / "Applications 2026")
-DEST = ROOT / "pipeline"
+# His things live in their own repo now; JOBBOT_PRIVATE says where a clone of
+# it is. Without it, this checkout, as before the split.
+from . import paths
+DEST = paths.PIPELINE
 FILES = ["profile.yaml", "PIPELINE.md", "resume.cls", "scripts/verify_resume.py"]
 
 # Job ids quoted in a JD.md header: long digit runs (Greenhouse) and UUIDs (Lever/Ashby).
@@ -47,7 +50,7 @@ def tracker_rows(src):
 
 def import_approvals(src):
     """Append phone approvals missing from Tracker.xlsx. Returns rows added."""
-    path = ROOT / "data" / "approvals.jsonl"
+    path = paths.DATA / "approvals.jsonl"
     if not path.exists():
         return 0
     approvals = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
@@ -100,7 +103,7 @@ def main(argv=None):
     git("fetch", "-q", "origin", "main")
     shown = git("show", "origin/main:data/approvals.jsonl")
     if shown.returncode == 0:
-        (ROOT / "data" / "approvals.jsonl").write_text(shown.stdout, encoding="utf-8")
+        (paths.DATA / "approvals.jsonl").write_text(shown.stdout, encoding="utf-8")
     try:
         added = import_approvals(SOURCE)
         print(f"Tracker.xlsx: {added} phone approval(s) added")
@@ -118,7 +121,7 @@ def main(argv=None):
     if a.no_push:
         return 0
     from . import gitsync
-    return gitsync.push("sync resume pipeline and tracker from OneDrive", ["pipeline"])
+    return gitsync.push("sync resume pipeline and tracker from OneDrive", [paths.inside(DEST)])
 
 
 if __name__ == "__main__":
