@@ -119,7 +119,7 @@ jobs:
           HAS_CLAUDE: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         run: |
           if [ "$HAS_CLAUDE" != "true" ]; then echo "no Claude token - skipping"; exit 0; fi
-          python -m jobbot.screen plan --limit 40
+          python -m jobbot.screen plan --limit 25
           n=$(python -c "import json,sys;from jobbot import screen;print(len(screen._load(screen.ASK, [])))")
           running=$(gh run list -w screen.yml --json status --jq '[.[] | select(.status != "completed")] | length')
           echo "to screen: $n, screen runs active: $running"

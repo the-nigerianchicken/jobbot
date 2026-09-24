@@ -19,7 +19,7 @@ on:
     inputs:
       limit:
         description: "Most postings to judge in one run"
-        default: "40"
+        default: "25"
 
 permissions:
   contents: write
@@ -61,7 +61,7 @@ jobs:
 
       - name: Pick the ones the rules cannot judge
         id: pick
-        run: python -m jobbot.screen plan --limit "${{ inputs.limit || '40' }}"
+        run: python -m jobbot.screen plan --limit "${{ inputs.limit || '25' }}"
 
       # The same check the resume runs use. A token copied from a wrapped
       # terminal line carries whitespace, and passing it raw fails before any
@@ -89,7 +89,7 @@ jobs:
           # to whichever Haiku is current.
           claude_args: >-
             --model haiku
-            --max-turns 4
+            --max-turns 12
             --allowedTools "Read,Write"
           prompt: |
             Read data/screen_ask.json. It is a list of internship postings, each
@@ -133,7 +133,8 @@ jobs:
             these. For example: {"uid": "ab12", "ok": false, "why": "needs US
             citizenship or permanent residency"}.
 
-            Write that one file and nothing else. Do not read any other file.
+            Write the whole array in a single Write call, with every uid you were
+            given. Write that one file and nothing else, and read no other file.
 
       - name: Record what it said
         if: steps.pick.outputs.count != '0'
