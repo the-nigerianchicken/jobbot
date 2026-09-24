@@ -1094,6 +1094,9 @@ async function wake(env) {
 
 // What is worth interrupting him for, and what it should say.
 const TELL = {
+  // A posting at a company he follows is the one thing worth interrupting him
+  // for the moment it appears: those are the ones that fill fastest.
+  new: (j) => (j.tier === 1 ? ["New at " + pretty(j.company), j.title] : null),
   ready: (j) => ["Resume ready", pretty(j.company) + " - " + j.title],
   needs: (j) => ["Needs you", pretty(j.company) + " - " + (j.note || "this one needs you")],
   done: (j) => ["Applied", pretty(j.company) + " - " + j.title],
@@ -1105,7 +1108,7 @@ async function announce(env, jobs) {
   if (!subs || !subs.n) return 0;
   let fresh = 0;
   for (const j of jobs) {
-    if (!TELL[j.state]) continue;
+    if (!TELL[j.state] || !TELL[j.state](j)) continue;
     const had = await one(env, `SELECT 1 x FROM push_sent WHERE uid = ?1 AND state = ?2`, j.uid, j.state);
     if (had) continue;
     await run(env, `INSERT OR REPLACE INTO push_sent (uid, state, at) VALUES (?1, ?2, ?3)`, j.uid, j.state, now());
@@ -1123,9 +1126,9 @@ async function pushLatest(env) {
     return json({ title: "jobbot needs a look", body: (said && said.value) || "Something stopped working.", uid: null });
   }
   const since = new Date(Date.now() - 6 * 3600e3).toISOString();
-  const rows = await all(env, `SELECT p.uid, p.state, j.company, j.title, j.note FROM push_sent p
+  const rows = await all(env, `SELECT p.uid, p.state, j.company, j.title, j.note, j.tier FROM push_sent p
                                JOIN jobs j ON j.uid = p.uid WHERE p.at >= ?1 ORDER BY p.at DESC LIMIT 8`, since);
-  const items = rows.filter((r) => TELL[r.state]).map((r) => {
+  const items = rows.filter((r) => TELL[r.state] && TELL[r.state](r)).map((r) => {
     const [title, body] = TELL[r.state](r);
     return { uid: r.uid, title, body };
   });

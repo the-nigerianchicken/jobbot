@@ -11,12 +11,14 @@ name: watch
 # resume runs. Recount before adding hours or jobs.
 # Two sweeps. The code repo is public (2026-09-24), so runner minutes are free
 # and the sweeps are back to the pace that catches a posting first:
-#   every 15 min, 06:00-21:00 ET   the companies he follows, about a minute
+#   every 5 min, 06:00-21:00 ET    the companies he follows, about a minute
 #   :07 every hour, all day        all 1,128 boards, about three minutes
+# Five minutes is GitHub's floor, and scheduled runs are commonly late under
+# load, so treat it as "within about ten minutes" rather than a promise.
 # "Check now" in the app starts one whenever he wants it sooner.
 on:
   schedule:
-    - cron: "*/15 10-23,0-1 * * *"
+    - cron: "*/5 10-23,0-1 * * *"
     - cron: "7 * * * *"
   workflow_dispatch:
     inputs:
@@ -75,7 +77,7 @@ jobs:
       - name: Poll boards
         run: |
           set -o pipefail
-          python -m jobbot.watch watch --json-out data/queue.json ${{ (github.event.schedule == '*/15 10-23,0-1 * * *' || inputs.targets) && '--targets' || '' }}             ${{ inputs.backlog_tiers && format('--backlog-tiers {0}', inputs.backlog_tiers) || '' }}             ${{ inputs.backlog_hours && format('--backlog-hours {0}', inputs.backlog_hours) || '' }} | tee run.log
+          python -m jobbot.watch watch --json-out data/queue.json ${{ (github.event.schedule == '*/5 10-23,0-1 * * *' || inputs.targets) && '--targets' || '' }}             ${{ inputs.backlog_tiers && format('--backlog-tiers {0}', inputs.backlog_tiers) || '' }}             ${{ inputs.backlog_hours && format('--backlog-hours {0}', inputs.backlog_hours) || '' }} | tee run.log
       - name: Commit state
         run: |
           git config user.name  "jobbot"

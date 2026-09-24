@@ -419,6 +419,25 @@ check("and which tools he has used", ["python", "go", "kubernetes"].every((t) =>
   JSON.stringify(feed.knows));
 check("and which terms he wants", feed.terms.includes("Summer 2027") && !feed.terms.includes("Fall 2026"));
 
+// The push service is stubbed again: the block above put the real fetch back.
+globalThis.fetch = async (url, init = {}) => {
+  if (String(url).includes("push.example")) { pushes.push({ url: String(url) }); return new Response("", { status: 201 }); }
+  return realFetch(url, init);
+};
+await env.DB.prepare("DELETE FROM push_sent").bind().run();
+let hot = pushes.length;
+await body("/api/ingest", "POST", { jobs: [
+  { uid: "hot1", company: "waymo", title: "Software Engineer Intern", tier: 1, state: "new", seen_at: iso(0.01) },
+] }, robot);
+check("a posting at a company he follows reaches his phone at once", pushes.length > hot);
+const hotSaid = await (await get("/api/push?latest=1", as)).json();
+check("and says which company", /New at Waymo/.test(hotSaid.title), JSON.stringify(hotSaid));
+hot = pushes.length;
+await body("/api/ingest", "POST", { jobs: [
+  { uid: "cold1", company: "someco", title: "Software Engineer Intern", tier: 3, state: "new", seen_at: iso(0.01) },
+] }, robot);
+check("one from anywhere else waits for the board", pushes.length === hot);
+
 /* ----------------------------------------------------------- watchdog --- */
 
 const beat = (mins) => env.DB.prepare("INSERT INTO meta (key, value, at) VALUES ('checked', ?1, ?1) " +
