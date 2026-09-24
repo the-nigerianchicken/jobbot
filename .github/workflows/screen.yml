@@ -1,0 +1,139 @@
+name: screen
+
+# Reads the postings the rules cannot judge, and only those.
+#
+# A keyword cannot tell "Citizen Remote Identity Verification team" from "U.S.
+# Citizenship required", or "BS/MS/PhD" from "enrolled in a PhD program". This
+# asks a model, on the smallest possible question: a few hundred characters
+# around the words that made the posting a candidate, for postings that have
+# never been judged before, batched into one turn.
+#
+# Cost, measured 2026-09-24: the whole backlog of 40 postings was 31,000
+# characters, around 8,000 tokens in one call. A day's new postings is nearer
+# ten of them. A single resume build is twenty times that on its own.
+#
+# watch starts this when it has something to send; it is never on a schedule,
+# because most sweeps have nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Most postings to judge in one run"
+        default: "40"
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: jobbot-screen
+  cancel-in-progress: false
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Get his things
+        if: vars.DATA_REPO != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.DATA_REPO }}
+          token: ${{ secrets.DATA_TOKEN }}
+          path: private
+      - name: Point jobbot at them
+        if: vars.DATA_REPO != ''
+        run: |
+          if [ ! -f private/criteria.yaml ]; then
+            echo "::error::DATA_TOKEN cannot read ${{ vars.DATA_REPO }}."
+            exit 1
+          fi
+          echo "JOBBOT_PRIVATE=$GITHUB_WORKSPACE/private" >> "$GITHUB_ENV"
+          echo "JOBBOT_REPO=${{ vars.DATA_REPO }}" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Pick the ones the rules cannot judge
+        id: pick
+        run: python -m jobbot.screen plan --limit "${{ inputs.limit || '40' }}"
+
+      # The action refuses an empty token, so this only runs when there is one.
+      - name: Read the token
+        if: steps.pick.outputs.count != '0'
+        env:
+          T: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: echo "CLAUDE_TOKEN=$T" >> "$GITHUB_ENV"
+
+      - name: Judge them
+        if: steps.pick.outputs.count != '0'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ env.CLAUDE_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          allowed_bots: "github-actions[bot],github-actions"
+          # The lightest model there is. This is one closed question about one
+          # paragraph, asked a few times a day.
+          claude_args: >-
+            --model claude-haiku-4-5-20251001
+            --max-turns 4
+            --allowedTools "Read,Write"
+          prompt: |
+            Read data/screen_ask.json. It is a list of internship postings, each
+            with the few hundred characters of its text that mention citizenship,
+            clearance, a degree level or a graduation year.
+
+            For each one, decide whether the user is eligible to take it. These are
+            facts about him, not preferences:
+
+            - Canadian citizen, living in Ontario. Not a US citizen, not a US
+              permanent resident, not a "US person", holds no security clearance.
+            - Bachelor's student in Computer Science at the State University,
+              graduating December 2027. He will be an undergraduate throughout
+              2027. He will never be a Master's or PhD student.
+
+            He is NOT eligible when the posting REQUIRES any of:
+            - US citizenship, permanent residency, "US person" status, a security
+              clearance, or eligibility under ITAR or export-control rules - but
+              only when "in_canada" is false for that posting. When "in_canada" is
+              true he can take the Canadian seat, so he is eligible.
+            - Current enrolment in a Master's or PhD program, or a degree he will
+              not hold.
+            - Graduating in a year other than 2027.
+
+            He IS eligible when the wording is any of:
+            - a team, product or customer name that merely contains one of these
+              words ("Citizen Remote Identity Verification team").
+            - equal-opportunity boilerplate listing citizenship or national origin
+              as a protected characteristic.
+            - a list of degrees that includes a Bachelor's ("BS/MS/PhD",
+              "Bachelor's or higher", "pursuing a degree in Computer Science").
+            - a preference rather than a requirement ("preferred", "a plus",
+              "nice to have", "ideally").
+
+            When the text does not settle it, say he IS eligible. A posting wrongly
+            kept costs him one look; a posting wrongly dropped costs him the job.
+
+            Write data/screen_say.json: a JSON array, one object per posting, with
+            the uid exactly as given, "ok" true or false, and when false a "why" of
+            at most eight plain words that names the actual requirement - he reads
+            these. For example: {"uid": "ab12", "ok": false, "why": "needs US
+            citizenship or permanent residency"}.
+
+            Write that one file and nothing else. Do not read any other file.
+
+      - name: Record what it said
+        if: steps.pick.outputs.count != '0'
+        run: python -m jobbot.screen apply
+
+      - name: Keep the verdicts
+        if: steps.pick.outputs.count != '0'
+        run: |
+          git config user.name  "jobbot"
+          git config user.email "jobbot@users.noreply.github.com"
+          python -m jobbot.gitsync "screened $(date -u +%Y-%m-%dT%H:%MZ)" data/screened.json

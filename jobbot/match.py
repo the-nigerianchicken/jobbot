@@ -80,6 +80,22 @@ def near_miss(posting, why, crit, days=7):
         _any_in(crit["terms"].get("require_in_title_any") or [], posting.title.lower()))
 
 
+_SCREENED = None
+
+
+def screened(refresh=False):
+    """Verdicts a model has given on postings the rules cannot judge.
+
+    Read once per process: watch calls classify twice over every posting (again
+    after enriching them), and a sweep sees seventeen thousand.
+    """
+    global _SCREENED
+    if _SCREENED is None or refresh:
+        from .screen import verdicts
+        _SCREENED = verdicts()
+    return _SCREENED
+
+
 def classify(posting, crit, targets=None):
     """Return (Match | None, drop_reason)."""
     targets = {t.lower() for t in (targets or TARGETS_DEFAULT)}
@@ -159,6 +175,15 @@ def classify(posting, crit, targets=None):
         blocker = _any_in_loose(elig.get("drop_outside_canada_if_description_contains", []), desc)
         if blocker:
             return None, f"needs US work authorization ({blocker[0]})"
+
+    # A posting a light model has read and found he cannot take. The rules
+    # could not see these: the wording is a sentence, not a phrase - "U.S.
+    # Citizenship, Lawful Permanent Residency, or Refugee/Asylee Status
+    # Required", or "Currently enrolled in an MS or PhD program". It lands in
+    # Filtered out with this reason, one tap from coming back.
+    said = screened().get(posting.uid)
+    if said and not said.get("ok", True):
+        return None, "not eligible: " + (said.get("why") or "he cannot take this one")
 
     flags = _any_in_loose(elig["flag_if_description_contains"], desc)
     for f in flags:

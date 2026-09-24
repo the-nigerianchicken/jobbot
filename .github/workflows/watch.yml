@@ -108,6 +108,23 @@ jobs:
           running=$(gh run list -w resume.yml --json status --jq '[.[] | select(.status != "completed")] | length')
           echo "open postings: $open, resume runs active: $running"
           if [ "$open" != "0" ] && [ "$running" = "0" ]; then gh workflow run resume.yml; fi
+      # Postings whose eligibility is a sentence rather than a phrase - "U.S.
+      # Citizenship, Lawful Permanent Residency, or Refugee/Asylee Status
+      # Required", "enrolled in an MS or PhD program". Started only when there
+      # are some, because most sweeps have none.
+      - name: Screen the ones the rules cannot judge
+        id: screen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HAS_CLAUDE: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: |
+          if [ "$HAS_CLAUDE" != "true" ]; then echo "no Claude token - skipping"; exit 0; fi
+          python -m jobbot.screen plan --limit 40
+          n=$(python -c "import json,sys;from jobbot import screen;print(len(screen._load(screen.ASK, [])))")
+          running=$(gh run list -w screen.yml --json status --jq '[.[] | select(.status != "completed")] | length')
+          echo "to screen: $n, screen runs active: $running"
+          if [ "$n" != "0" ] && [ "$running" = "0" ]; then gh workflow run screen.yml; fi
+
       # Last on purpose: exits nonzero on a tier-1/2 match so GitHub notifies,
       # after state is already committed.
       - name: Notify
