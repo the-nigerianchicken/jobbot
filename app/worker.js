@@ -206,6 +206,25 @@ async function askGitHub(env) {
   return out;
 }
 
+// Every tool named in his skills rows or attached to something he built.
+function knownTech(profile) {
+  const out = new Set();
+  for (const row of Object.values(profile.skills || {}))
+    for (const word of String(row).split(/[,;/]| and /))
+      if (word.trim().length > 1) out.add(word.trim().toLowerCase());
+  for (const entry of profile.entries || [])
+    for (const fact of entry.facts || [])
+      for (const t of fact.tech || []) if (String(t).trim()) out.add(String(t).trim().toLowerCase());
+  return [...out].slice(0, 120);
+}
+
+async function wantedTerms(env) {
+  const row = await one(env, `SELECT base, value, value_base FROM settings WHERE key = 'search'`);
+  if (!row || !row.base) return [];
+  const search = row.value ? merge3(parse(row.base), parse(row.value_base), parse(row.value)) : parse(row.base);
+  return Object.entries(search.seasons || {}).filter(([, on]) => on).map(([k]) => k);
+}
+
 async function jobs(env, url) {
   const wantSkipped = url.searchParams.get("skipped") === "1";
   const wantSnoozed = url.searchParams.get("snoozed") === "1";
@@ -261,15 +280,19 @@ async function jobs(env, url) {
   // Whose resumes these are, for the file names. It comes from his settings, so
   // the code carries no name of its own.
   const who = await one(env, `SELECT base, value, value_base FROM settings WHERE key = 'profile'`);
+  const mine = who && who.base
+    ? (who.value ? merge3(parse(who.base), parse(who.value_base), parse(who.value)) : parse(who.base))
+    : null;
   const busy = await running(env).catch(() => []);
   return json({ jobs: out, counts, snoozed, muted: muted.map((m) => m.company), following: follows,
                 filtered: held ? held.n : 0, running: busy,
-                owner: (() => {
-                  if (!who || !who.base) return null;
-                  const p = who.value ? merge3(parse(who.base), parse(who.value_base), parse(who.value))
-                                      : parse(who.base);
-                  return (p.contact && p.contact.name) || null;
-                })(),
+                owner: (mine && mine.contact && mine.contact.name) || null,
+                // The tools he has actually used, so the app can say which of
+                // them a posting asks for.
+                knows: mine ? knownTech(mine) : [],
+                // The terms he wants, so a posting for one he does not can be
+                // ranked below the rest rather than sitting at the top.
+                terms: await wantedTerms(env),
                 checked: beat ? beat.value : null, at: now() });
 }
 

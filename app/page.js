@@ -130,6 +130,9 @@ export const PAGE = String.raw`<!doctype html>
   @keyframes from-right { from { transform:translateX(18px); opacity:.6; } }
   @keyframes from-left { from { transform:translateX(-18px); opacity:.6; } }
   @media (prefers-reduced-motion: reduce) { .slide-l, .slide-r { animation:none; } }
+  .fits span { color:var(--accent); }
+  .closes { color:var(--amber); }
+  .closes.soon { color:var(--red); font-weight:600; }
   .unread { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--accent);
     margin-left:7px; vertical-align:middle; }
   /* What a swipe reveals under the row. */
@@ -500,7 +503,8 @@ const ZONES = [
 const OUTCOMES = ["no response","OA","interview","offer","accepted","rejected","withdrawn"];
 // How the list is narrowed and ordered. Remembered on this device.
 const SEASON_RANK = { Winter: 0, Spring: 1, Summer: 2, Fall: 3 };
-const SORTS = [["new", "Newest first"], ["follow", "Companies you follow first"], ["az", "Company A to Z"]];
+const SORTS = [["new", "Newest first"], ["fit", "Best match first"],
+               ["follow", "Companies you follow first"], ["az", "Company A to Z"]];
 const POSTED = [["1", "Last 24 hours", 24], ["3", "Last 3 days", 72], ["7", "This week", 168]];
 const ROLES = [
   ["ai", "AI and machine learning", /\b(ai|ml|machine learning|deep learning|llm|nlp|genai|generative|computer vision|applied scien|research)/i],
@@ -537,7 +541,7 @@ let tab = "jobs", jobs = [], apps = { rows: [], stats: {}, total: 0 };
 let current = null, find = "", region = "", showArchived = false, showSnoozed = false;
 let selecting = false, picked = new Set(), checked = null, snoozedCount = 0, muted = [];
 let appFind = "", appOutcome = "", menuOpen = false, following = [];
-let pane = "job", filteredCount = 0, busyNow = [], waitingOn = null, owner = "";
+let pane = "job", filteredCount = 0, busyNow = [], waitingOn = null, owner = "", knows = [], wantedTerms = [];
 
 /* -------------------------------------------------------------- helpers -- */
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c]));
@@ -724,6 +728,53 @@ function followed(j) {
   return following.some((f) => words.has(f.key) || whole === f.key);
 }
 
+// Days until the form shuts, when the posting says. Anything further off than a
+// fortnight is not news.
+function closing(j) {
+  if (!j.deadline) return 0;
+  const days = Math.ceil((new Date(j.deadline) - Date.now()) / 864e5);
+  return days >= 0 && days <= 14 ? days : 0;
+}
+
+// How well a posting fits him: the tools he has used that it asks for, where it
+// is, how fresh it is, and whether it names a term he wants. No model, nothing
+// hidden - the row shows which of his tools it matched.
+const fit = new Map();
+function match(j) {
+  if (fit.has(j.uid)) return fit.get(j.uid);
+  const text = ((j.title || "") + " " + (j.jd || "")).toLowerCase();
+  const hits = [];
+  for (const t of knows) {
+    if (hits.length >= 6) break;
+    // Whole words only: "go" must not match "google", "r" must not match everything.
+    if (t.length < 2) continue;
+    const at = text.indexOf(t);
+    if (at < 0) continue;
+    const before = at === 0 ? " " : text[at - 1], after = text[at + t.length] || " ";
+    if (/[a-z0-9+#.]/.test(before) || /[a-z0-9+#]/.test(after)) continue;
+    hits.push(t);
+  }
+  const hours = j.posted_at ? (Date.now() - new Date(j.posted_at)) / 3600e3 : 999;
+  const score = Math.min(hits.length, 5) * 2
+    + (followed(j) ? 4 : 0)
+    + (places(j).has("canada") ? 2 : 0)
+    + (hours <= 6 ? 3 : hours <= 24 ? 2 : hours <= 72 ? 1 : 0)
+    + termFit(j);
+  const out = { score, hits };
+  fit.set(j.uid, out);
+  return out;
+}
+
+// A posting for a term he wants beats one that names none, which beats one for
+// a term he has turned off.
+function termFit(j) {
+  if (!j.term) return -1;
+  const named = terms(j);
+  if (!wantedTerms.length) return 1;
+  if (named.some((t) => wantedTerms.includes(t))) return 3;
+  return -4;
+}
+
 // Each filter, as a test. "skip" leaves one out, for the counts beside its own
 // options: how many he would see if he picked that option instead.
 function passes(j, skip) {
@@ -736,18 +787,20 @@ function passes(j, skip) {
     const hours = POSTED.find(([k]) => k === view.posted)[2];
     if (!j.posted_at || Date.now() - new Date(j.posted_at) > hours * 3600e3) return false;
   }
+  if (skip !== "closing" && view.closing && !closing(j)) return false;
   if (skip !== "follow" && view.follow && !followed(j)) return false;
   if (skip !== "unopened" && view.unopened && opened.has(j.uid)) return false;
   return true;
 }
 const activeFilters = () => view.where.length + view.term.length + view.role.length +
-  (view.posted ? 1 : 0) + (view.follow ? 1 : 0) + (view.unopened ? 1 : 0);
+  (view.posted ? 1 : 0) + (view.follow ? 1 : 0) + (view.unopened ? 1 : 0) + (view.closing ? 1 : 0);
 
 function shown() {
   const list = jobs.filter((j) => passes(j));
   const newest = (a, b) => String(b.posted_at || "").localeCompare(String(a.posted_at || ""));
   const order = view.sort === "az" ? (a, b) => a.company.localeCompare(b.company) || newest(a, b)
     : view.sort === "follow" ? (a, b) => (followed(b) - followed(a)) || newest(a, b)
+    : view.sort === "fit" ? (a, b) => (match(b).score - match(a).score) || newest(a, b)
     : newest;
   return list.sort(order);
 }
@@ -771,7 +824,8 @@ function filterPanel() {
     ["Role", "role", facet("role", ROLES.map(([k, l]) => [k, l]).concat([["general", "General software"]]), (j, k) => roles(j).includes(k))],
     ["Posted", "posted", facet("posted", POSTED.map(([k, l]) => [k, l]), (j, k) => j.posted_at &&
       Date.now() - new Date(j.posted_at) <= POSTED.find(([x]) => x === k)[2] * 3600e3)],
-    ["Show only", "only", [["follow", "Companies you follow", jobs.filter((j) => j.state !== "skipped" && inZone(j) && passes(j, "follow") && followed(j)).length],
+    ["Show only", "only", [["closing", "Closing within 2 weeks", jobs.filter((j) => j.state !== "skipped" && inZone(j) && passes(j, "closing") && closing(j)).length],
+                           ["follow", "Companies you follow", jobs.filter((j) => j.state !== "skipped" && inZone(j) && passes(j, "follow") && followed(j)).length],
                            ["unopened", "Not opened yet", jobs.filter((j) => j.state !== "skipped" && inZone(j) && passes(j, "unopened") && !opened.has(j.uid)).length]]],
   ];
   const isOn = (g, k) => g === "posted" ? view.posted === k : g === "only" ? !!view[k] : view[g].includes(k);
@@ -784,9 +838,11 @@ function activeChips() {
   const label = (g, k) => g === "where" ? { canada: "Canada", us: "United States", remote: "Remote" }[k]
     : g === "term" ? (k === "none" ? "Term not stated" : k)
     : g === "role" ? (ROLES.find(([x]) => x === k) || [k, "General software"])[1]
-    : g === "posted" ? POSTED.find(([x]) => x === k)[1] : { follow: "Companies you follow", unopened: "Not opened yet" }[k];
+    : g === "posted" ? POSTED.find(([x]) => x === k)[1]
+    : { follow: "Companies you follow", unopened: "Not opened yet", closing: "Closing within 2 weeks" }[k];
   const on = [...view.where.map((k) => ["where", k]), ...view.term.map((k) => ["term", k]), ...view.role.map((k) => ["role", k]),
               ...(view.posted ? [["posted", view.posted]] : []), ...(view.follow ? [["only", "follow"]] : []),
+              ...(view.closing ? [["only", "closing"]] : []),
               ...(view.unopened ? [["only", "unopened"]] : [])];
   if (!on.length) return "";
   return '<div class="chips active">' + on.map(([g, k]) => '<button class="on" data-f="' + g + '" data-k="' + esc(k) +
@@ -795,7 +851,10 @@ function activeChips() {
 }
 
 function rowHtml(j) {
-  const bits = [real(j.where), j.term].filter(Boolean).map((b) => "<span>" + esc(b) + "</span>").join("");
+  const bits = [real(j.where), j.term].filter(Boolean).map((b) => "<span>" + esc(b) + "</span>").join("") +
+    (closing(j) ? '<span class="closes' + (closing(j) <= 2 ? " soon" : "") + '">' +
+      (closing(j) <= 0 ? "Closes today" : "Closes in " + closing(j) + (closing(j) === 1 ? " day" : " days")) +
+      "</span>" : "");
   return '<button class="row' + (current === j.uid ? " sel" : "") + (picked.has(j.uid) ? " picked" : "") +
     '" data-uid="' + esc(j.uid) + '">' +
     (selecting ? '<span class="tick"></span>' : logo(j.company, j.url || j.apply_url)) +
@@ -804,6 +863,9 @@ function rowHtml(j) {
       '<span class="age">' + age(j.posted_at) + "</span></span>" +
       '<span class="title">' + esc(j.title) + "</span>" +
       (bits ? '<span class="line3">' + bits + "</span>" : "") +
+      (j.state === "new" && match(j).hits.length
+        ? '<span class="line3 fits">' + match(j).hits.slice(0, 3).map((h) => "<span>" + esc(h) + "</span>").join("") +
+          "</span>" : "") +
       (j.note && j.state !== "done" && j.state !== "new"
         ? '<span class="why">' + esc(j.note) + (j.since && (j.state === "building" || j.state === "working")
             ? " \u00b7 " + age(j.since) : "") + "</span>" : "") +
@@ -1994,6 +2056,8 @@ async function loadJobs() {
   const d = await api("/api/jobs" + (q ? "?" + q : ""));
   jobs = d.jobs || []; checked = d.checked || null; snoozedCount = d.snoozed || 0; muted = d.muted || [];
   following = d.following || []; filteredCount = d.filtered || 0; owner = d.owner || "";
+  knows = d.knows || []; wantedTerms = d.terms || [];
+  fit.clear();
   const wasBusy = busyNow.length;
   busyNow = d.running || [];
   // He asked for a check: say what came of it once the run is done.

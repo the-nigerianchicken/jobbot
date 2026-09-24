@@ -407,6 +407,18 @@ const swjs = await (await req("/sw.js")).text();
 check("the service worker is served from the root", swjs.includes("notificationclick"));
 globalThis.fetch = realFetch;
 
+/* ------------------------------------------------------ what he knows --- */
+
+await body("/api/ingest", "POST", { settings_base: { profile: {
+  contact: { name: "Ada Lovelace" }, skills: { Languages: ["Python", "Go"] },
+  entries: [{ id: "e1", facts: [{ id: "f1", tech: ["Kubernetes"] }] }] },
+  search: { seasons: { "Summer 2027": true, "Fall 2026": false } } } }, robot);
+feed = await (await get("/api/jobs", as)).json();
+check("the app is told whose resumes these are", feed.owner === "Ada Lovelace");
+check("and which tools he has used", ["python", "go", "kubernetes"].every((t) => feed.knows.includes(t)),
+  JSON.stringify(feed.knows));
+check("and which terms he wants", feed.terms.includes("Summer 2027") && !feed.terms.includes("Fall 2026"));
+
 /* ----------------------------------------------------------- watchdog --- */
 
 const beat = (mins) => env.DB.prepare("INSERT INTO meta (key, value, at) VALUES ('checked', ?1, ?1) " +
