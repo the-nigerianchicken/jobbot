@@ -267,7 +267,10 @@ async function askGitHub(env) {
     const d = parse(tried.value) || {};
     if (d.ok === false && d.status === 403)
       out.push({ kind: "broken", at: tried.at,
-                 says: "jobbot cannot start runs itself - its GitHub token needs Actions write",
+                 // Naming the repo matters: the permission has to be on the one
+                 // the workflows live in, which is not the one his things are in.
+                 says: "jobbot cannot start runs - its GitHub token needs Actions write on " +
+                       (d.repo || codeRepo(env)),
                  url: "https://github.com/settings/personal-access-tokens" });
   }
   await run(env, `INSERT INTO meta (key, value, at) VALUES ('runs', ?1, ?2)
@@ -816,7 +819,8 @@ async function start(env, workflow, inputs) {
   const said = ok ? "" : (r ? await r.text().catch(() => "") : "no answer").slice(0, 200);
   await run(env, `INSERT INTO meta (key, value, at) VALUES ('dispatch', ?1, ?2)
                   ON CONFLICT(key) DO UPDATE SET value = excluded.value, at = excluded.at`,
-    JSON.stringify({ workflow, ok, status: r ? r.status : 0, said }), now()).catch(() => {});
+    JSON.stringify({ workflow, repo: codeRepo(env), ok, status: r ? r.status : 0, said }),
+    now()).catch(() => {});
   return ok;
 }
 
