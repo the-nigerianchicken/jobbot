@@ -252,6 +252,16 @@ async function askGitHub(env) {
     if (r0 && r0.conclusion && r0.conclusion !== "success")
       out.push({ kind: "broken", says: "The last check failed", at: r0.created_at, url: r0.html_url });
   }
+  // The app can ask GitHub to start a run; if its token may not, every "Check
+  // now" and every Apply does nothing at all, and until now nothing said so.
+  const tried = await one(env, `SELECT value, at FROM meta WHERE key = 'dispatch'`).catch(() => null);
+  if (tried && !out.some((o) => o.kind === "broken")) {
+    const d = parse(tried.value) || {};
+    if (d.ok === false && d.status === 403)
+      out.push({ kind: "broken", at: tried.at,
+                 says: "jobbot cannot start runs itself - its GitHub token needs Actions write",
+                 url: "https://github.com/settings/personal-access-tokens" });
+  }
   await run(env, `INSERT INTO meta (key, value, at) VALUES ('runs', ?1, ?2)
                   ON CONFLICT(key) DO UPDATE SET value = excluded.value, at = excluded.at`,
     JSON.stringify(out), now());
