@@ -32,8 +32,26 @@ def call(path, payload=None, method="GET"):
         # Cloudflare turns away the default urllib agent.
         headers={"authorization": f"Bearer {TOKEN}", "content-type": "application/json",
                  "user-agent": "jobbot/1.0 (+github actions)"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read().decode() or "{}")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read().decode() or "{}")
+    except urllib.error.HTTPError as e:
+        # The app's database has a daily allowance of writes. Running out is a
+        # wait, not a fault: failing the sweep over it turns one exhausted quota
+        # into a failed run every two minutes, and a failure email with each
+        # one (2026-09-25). Say it once and carry on.
+        if e.code == 503:
+            body = json.loads(e.read().decode() or "{}")
+            if body.get("quota"):
+                print(f"app: {body.get('error')}")
+                QUOTA.append(True)
+                # The workflow reads this to know not to book another sweep.
+                try:
+                    open("app-out-of-writes", "w").close()
+                except OSError:
+                    pass
+                return {}
+        raise
 
 
 def push():
@@ -206,6 +224,8 @@ def _follow(uid, detail, on=True):
 
 
 EDITED, REQUESTED, MUTED, FOLLOWED = set(), set(), set(), set()
+# Non-empty once the app has said it is out of writes for the day.
+QUOTA = []
 # Archived, reopened or applied. The watch workflow commits its state before it
 # reads his taps, so these must be committed here or the next run - checked
 # out fresh - forgets them and puts the job back in his feed (2026-09-21).

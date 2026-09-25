@@ -132,6 +132,15 @@ jobs:
       - name: Notify
         run: python -m jobbot.notify data/queue.json ${{ inputs.test_alert && '--test' || '' }}
 
+      # The app is what he looks at: tell it what happened, and pick up
+      # anything he tapped while this was running.
+      - name: Sync the app
+        if: always()
+        env:
+          APP_URL: ${{ secrets.APP_URL || vars.APP_URL }}
+          APP_TOKEN: ${{ secrets.APP_TOKEN }}
+        run: python -m jobbot.appsync push
+
       # Each sweep books the next one.
       #
       # GitHub's schedule is best-effort: */5 came at gaps of 3, 19, 14, 16, 11,
@@ -156,13 +165,10 @@ jobs:
           waiting=$(gh run list -w watch.yml --json status \
             --jq '[.[] | select(.status == "queued" or .status == "waiting")] | length')
           if [ "$waiting" != "0" ]; then echo "one is already waiting its turn"; exit 0; fi
+          # The app's database has a daily allowance of writes. While it is
+          # spent a sweep has nowhere to put what it finds, so the chain stands
+          # down and the hourly schedule picks it up once the day rolls over.
+          if [ -f app-out-of-writes ]; then
+            echo "the app is out of writes for today - standing down until it resets"; exit 0
+          fi
           gh workflow run watch.yml -f targets=true && echo "next sweep booked"
-
-      # The app is what he looks at: tell it what happened, and pick up
-      # anything he tapped while this was running.
-      - name: Sync the app
-        if: always()
-        env:
-          APP_URL: ${{ secrets.APP_URL || vars.APP_URL }}
-          APP_TOKEN: ${{ secrets.APP_TOKEN }}
-        run: python -m jobbot.appsync push
