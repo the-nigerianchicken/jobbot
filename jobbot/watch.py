@@ -179,13 +179,21 @@ def enqueue(new):
         if _key(m.posting.company) in quiet or _key(m.posting.org) in quiet:
             continue
         pending.setdefault(m.posting.uid, posting_dict(m))
-    store._save("pending.json", pending)
     # Anything he has asked to have written again, which an older prune dropped
     # out of the queue before its resume existed.
-    from .tailor import requeue
+    from .tailor import complete, requeue
+    store._save("pending.json", pending)
+    put_back = 0
     for uid, v in done.items():
         if v.get("status") == "retry" and uid not in pending:
-            requeue(uid)
+            put_back += requeue(uid)
+    # requeue writes the file itself, so read it back before saving over it.
+    if put_back:
+        pending = store._load("pending.json", {})
+    mended = sum(complete(row) for row in pending.values())
+    if mended:
+        print(f"queue: filled in {mended} row(s) that were missing fields")
+    store._save("pending.json", pending)
 
 
 def report(boards, postings, matches, new, drops, health, crit, args):

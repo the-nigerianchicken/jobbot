@@ -269,6 +269,22 @@ def to_posting(t):
                    deadline=ts(t.get("deadline")), raw_id=t.get("raw_id") or "")
 
 
+# Every key the queue is read for. The rows are read by subscript in several
+# places, so one missing key is a crash in the middle of a sweep rather than a
+# missing field on a card.
+ROW = ("uid", "tier", "reasons", "source", "org", "company", "title", "location", "url",
+       "apply_url", "posted_at", "deadline", "raw_id", "description", "terms", "queued_at")
+BLANK = {"tier": 3, "reasons": [], "posted_at": None, "deadline": None, "terms": None}
+
+
+def complete(row):
+    """A queue row with every key present. True if anything had to be filled."""
+    missing = [k for k in ROW if k not in row]
+    for k in missing:
+        row[k] = BLANK.get(k, "")
+    return bool(missing)
+
+
 def posting_dict(m):
     p = m.posting
     return {"uid": p.uid, "tier": m.tier, "reasons": m.reasons, "source": p.source,
