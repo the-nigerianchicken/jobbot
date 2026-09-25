@@ -893,6 +893,27 @@ def _build_once(a):
     return 0
 
 
+def cmd_gaveup(a):
+    """The run died without finishing the resume.
+
+    Until now that left the card saying "Writing your resume" for good: the
+    ledger is only written when a build succeeds or a verifier refuses, so a
+    run that ran out of turns or crashed left no trace at all and the job sat
+    there (2026-09-25, Snowflake, a quarter of an hour and counting). It is a
+    failed build like any other now, which the app already knows how to show,
+    with a button to try again.
+    """
+    had = _load("tailored.json", {}).get(a.uid, {})
+    if had.get("folder") or had.get("status") == "resume_ready":
+        print(f"{a.uid}: the resume was written; leaving it alone")
+        return 0
+    t = _load("pending.json", {}).get(a.uid, {})
+    _mark(a.uid, "build_failed", errors=[a.reason],
+          company=t.get("company"), title=t.get("title"))
+    print(f"{t.get('company') or a.uid}: {a.reason}")
+    return 0
+
+
 def cmd_skip(a):
     _mark(a.uid, "skipped", reason=a.reason)
     print(f"skipped {a.uid}: {a.reason}")
@@ -1156,6 +1177,7 @@ def main(argv=None):
     s.add_argument("--workers", type=int, default=12); s.set_defaults(func=cmd_enqueue_backlog)
     s = sub.add_parser("build"); s.add_argument("folder"); s.set_defaults(func=cmd_build)
     s = sub.add_parser("skip"); s.add_argument("uid"); s.add_argument("reason"); s.set_defaults(func=cmd_skip)
+    s = sub.add_parser("gaveup"); s.add_argument("uid"); s.add_argument("reason"); s.set_defaults(func=cmd_gaveup)
     s = sub.add_parser("publish"); s.add_argument("--only"); s.add_argument("--no-issues", action="store_true",
                                                   help="only settle unfinished builds")
     s.set_defaults(func=cmd_publish)

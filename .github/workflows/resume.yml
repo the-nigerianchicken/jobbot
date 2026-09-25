@@ -162,8 +162,8 @@ jobs:
           # Which Claude writes them is his to set, in Settings -> Resume.
           claude_args: >-
             ${{ needs.plan.outputs.model && format('--model {0}', needs.plan.outputs.model) || '' }}
-            --max-turns 30
-            --allowedTools "Read,Write,Edit,Bash(python -m jobbot.tailor build:*),Bash(python -m jobbot.tailor skip:*)"
+            --max-turns 45
+            --allowedTools "Read,Write,Edit,Glob,Grep,TodoWrite,Bash(python -m jobbot.tailor build:*),Bash(python -m jobbot.tailor skip:*)"
           prompt: |
             You write one tailored resume for the user. The folder in data/batch.txt
             has a brief.md holding everything you need: the posting (with anything he
@@ -236,6 +236,14 @@ jobs:
         run: |
           f=/home/runner/work/_temp/claude-execution-output.json
           [ -f "$f" ] && jq -r '[.[] | select(.type == "result")] | last | .result // "no result text"' "$f" | head -c 3000 || echo "no execution log"
+
+      # A run that stopped before it finished used to leave the card saying
+      # "Writing your resume" for ever: nothing writes the ledger until a build
+      # passes or a verifier refuses. This is checked into the same push as the
+      # resume itself, below.
+      - name: Say so if it did not finish
+        if: failure() && steps.pick.outputs.count != '0'
+        run: python -m jobbot.tailor gaveup "${{ matrix.uid }}" "The run writing this stopped before it finished."
 
       - name: Commit the resume
         if: always() && steps.pick.outputs.count != '0'
