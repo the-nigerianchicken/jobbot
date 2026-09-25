@@ -18,7 +18,9 @@ name: watch
 # "Check now" in the app starts one whenever he wants it sooner.
 on:
   schedule:
-    - cron: "*/5 10-23,0-1 * * *"
+    # Each sweep books the next one, and the worker starts one if the chain ever
+    # breaks, so this is only the failsafe that gets things going again - and
+    # the hourly pass over every board, which the chain does not do.
     - cron: "7 * * * *"
   workflow_dispatch:
     inputs:
@@ -77,7 +79,7 @@ jobs:
       - name: Poll boards
         run: |
           set -o pipefail
-          python -m jobbot.watch watch --json-out data/queue.json ${{ (github.event.schedule == '*/5 10-23,0-1 * * *' || inputs.targets) && '--targets' || '' }}             ${{ inputs.backlog_tiers && format('--backlog-tiers {0}', inputs.backlog_tiers) || '' }}             ${{ inputs.backlog_hours && format('--backlog-hours {0}', inputs.backlog_hours) || '' }} | tee run.log
+          python -m jobbot.watch watch --json-out data/queue.json ${{ inputs.targets && '--targets' || '' }}             ${{ inputs.backlog_tiers && format('--backlog-tiers {0}', inputs.backlog_tiers) || '' }}             ${{ inputs.backlog_hours && format('--backlog-hours {0}', inputs.backlog_hours) || '' }} | tee run.log
       - name: Commit state
         run: |
           git config user.name  "jobbot"

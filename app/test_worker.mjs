@@ -727,6 +727,35 @@ check("the page has no leftover style placeholders", !/\$\{/.test(PAGE.slice(0, 
     calls.slice(-4).map((c) => c.url).join(" | "));
 }
 
+/* --------------------------------------------------------- what it costs --- */
+// D1 counts a row written even when the upsert sets it to what was already
+// there. jobbot sends every posting it knows on every sweep, so at a sweep
+// every two minutes that ran the free tier out of writes by the afternoon and
+// the database refused everything for the rest of the day.
+{
+  // Fixed timestamps: iso() moves every call, which would make each send a
+  // genuinely different row and prove nothing.
+  const when = "2026-09-25T00:00:00.000Z";
+  const send = (state) => body("/api/ingest", "POST", { jobs: [
+    { uid: "cost", company: "costco", title: "SWE Intern, Summer 2027", tier: 1, state,
+      location: "Toronto, Canada", posted_at: when, seen_at: when }] },
+    { authorization: "Bearer robot" });
+
+  await send("new");
+  const before = (await (await get("/api/jobs", as)).json()).jobs.find((j) => j.uid === "cost");
+  await send("new");
+  const after = (await (await get("/api/jobs", as)).json()).jobs.find((j) => j.uid === "cost");
+  check("sending the same posting again does not touch it",
+    before && after && before.since === after.since, `${before && before.since} vs ${after && after.since}`);
+
+  // Not "ready": a job sitting in new and touched a moment ago is held there on
+  // purpose, so that a run finishing after he stopped one cannot undo his tap.
+  await send("needs");
+  const moved = (await (await get("/api/jobs", as)).json()).jobs.find((j) => j.uid === "cost");
+  check("but a posting that changed is written", moved && moved.state === "needs" && moved.since !== after.since,
+    JSON.stringify(moved && [moved.state, moved.since === after.since]));
+}
+
 /* ------------------------------------------------ the worker's own clock --- */
 // GitHub's schedule is best-effort: a */5 cron came at gaps of 3 to 22 minutes
 // on 2026-09-25. Cloudflare's is punctual, so the worker decides when a sweep

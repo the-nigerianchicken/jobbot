@@ -888,11 +888,22 @@ async function ingest(request, env) {
     const keep = (his && HIS.has(have.state) && !HIS.has(j.state)) || stopped;
     const values = JOB_COLS.map((c) => (c === "knockout" ? (j[c] ? 1 : 0) : (j[c] ?? null)));
     const marks = JOB_COLS.map((_, i) => `?${i + 1}`).join(", ");
-    const updates = JOB_COLS.slice(1).filter((c) => !(keep && (c === "state" || c === "note")))
-      .map((c) => `${c} = excluded.${c}`).join(", ");
+    const changing = JOB_COLS.slice(1).filter((c) => !(keep && (c === "state" || c === "note")));
+    const updates = changing.map((c) => `${c} = excluded.${c}`).join(", ");
+    // Only write a row that is actually different.
+    //
+    // jobbot sends every posting it knows on every sweep, and an upsert that
+    // sets a column to the value already there still counts as a row written.
+    // At a sweep every two minutes that was a quarter of a million writes a day
+    // against D1's hundred thousand, and on 2026-09-25 the database started
+    // refusing every write for the rest of the day - which stops the board, the
+    // heartbeat and everything he taps. A sweep where nothing changed should
+    // cost nothing.
+    const differs = changing.map((c) => `jobs.${c} IS NOT excluded.${c}`).join(" OR ");
     await run(env,
       `INSERT INTO jobs (${JOB_COLS.join(", ")}, updated_at) VALUES (${marks}, ?${JOB_COLS.length + 1})
-       ON CONFLICT(uid) DO UPDATE SET ${updates}, updated_at = excluded.updated_at`,
+       ON CONFLICT(uid) DO UPDATE SET ${updates}, updated_at = excluded.updated_at
+       WHERE ${differs}`,
       ...values, at);
     if (j.state === "done") await recordApplied(env, j, j.how || "jobbot");
     written++;
