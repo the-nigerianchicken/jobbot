@@ -164,8 +164,16 @@ def enqueue(new):
     quiet = set(store._load("muted.json", {}))
     from .tailor import requested
     asked = requested()
-    for uid in [u for u in pending if u in done and done[u]["status"] not in ("in_progress", "retry")
-                and not (u in asked and not done[u].get("folder"))]:
+    # A posting leaves the queue when the resume side has finished with it. It
+    # used to count a folder as finished - but the folder is made before the
+    # writing starts, so a run that died halfway looked done and the posting was
+    # dropped. It could then never be built again, and the card said "Waiting
+    # its turn" for ever (2026-09-25, Snowflake). What he asked for stays until
+    # there is a resume, or until he archives it.
+    keep_until_written = ("in_progress", "retry", "build_failed", "cannot_build")
+    for uid in [u for u in pending if u in done
+                and done[u]["status"] not in ("in_progress", "retry")
+                and not (u in asked and done[u]["status"] in keep_until_written)]:
         del pending[uid]
     for m in new:
         if _key(m.posting.company) in quiet or _key(m.posting.org) in quiet:

@@ -976,6 +976,32 @@ def gh(*args):
     return subprocess.run(["gh", *args], capture_output=True, text=True, encoding="utf-8")
 
 
+def requeue(uid):
+    """Put a posting back in the queue from what the ledger remembers.
+
+    A job dropped from pending before its resume existed cannot be rebuilt,
+    because the resume side only ever looks at pending. Everything needed is on
+    the ledger row except the posting text, which is fetched again.
+    """
+    pending = _load("pending.json", {})
+    if uid in pending:
+        return False
+    had = _load("tailored.json", {}).get(uid)
+    if not had:
+        return False
+    from . import community
+    text = community.describe(had.get("url") or "") if had.get("url") else ""
+    pending[uid] = {"uid": uid, "company": had.get("company"), "title": had.get("title"),
+                    "location": had.get("location"), "url": had.get("url"),
+                    "apply_url": had.get("apply_url"), "posted_at": had.get("posted_at"),
+                    "deadline": had.get("deadline"), "tier": had.get("tier") or 3,
+                    "reasons": ["put back to be written again"],
+                    "description": text or "",
+                    "queued_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    _save("pending.json", pending)
+    return True
+
+
 def cmd_retry(a):
     """Forget build_failed entries (all, or given uids) so they are queued again.
 
@@ -986,9 +1012,14 @@ def cmd_retry(a):
     uids = a.uids or [u for u, v in ledger.items() if v["status"] == "build_failed"]
     # A "retry" status (not a deletion) so the entry-by-entry ledger merge in
     # gitsync carries it over a concurrent resume run's copy.
+    back = 0
     for u in uids:
         _mark(u, "retry")
-    print(f"requeued {len(uids)}")
+        # One dropped from the queue before its resume existed has to be put
+        # back, or "retry" marks a row nothing will ever look at again.
+        if requeue(u):
+            back += 1
+    print(f"requeued {len(uids)}" + (f" ({back} put back in the queue)" if back else ""))
     return 0
 
 
