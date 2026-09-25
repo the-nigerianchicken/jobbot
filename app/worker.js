@@ -86,9 +86,36 @@ export default {
   // seven hours and nothing said so; now his phone does.
   async scheduled(event, env, ctx) {
     const later = (p) => { if (ctx && ctx.waitUntil) ctx.waitUntil(p.catch(() => {})); return p; };
-    await health({ ...env, later });
+    const e = { ...env, later };
+    await keepSweeping(e);
+    await health(e);
   },
 };
+
+// How long a sweep may be overdue before the worker asks for one itself.
+//
+// GitHub's schedule is best-effort, and it shows: a */5 cron fired at gaps of
+// 3, 19, 14, 16, 11, 6, 22 and 17 minutes on 2026-09-25, which is what he meant
+// by "only checking every 20 mins or so". Cloudflare's cron is punctual, so it
+// is the one that decides.
+//
+// mins   how long since the last sweep finished, in minutes
+// hour   the hour in UTC, 0-23. He is in Toronto: UTC-4 in summer, so 13 UTC
+//        is 9am for him and 1 UTC is 9pm.
+// Returns true to start a sweep now.
+function dueForSweep(mins, hour) {
+  // TODO(human): decide when a sweep is overdue.
+  return false;
+}
+
+// Asks GitHub for a sweep when one is overdue. Two of these can never pile up:
+// the workflow's concurrency group queues them one behind the other.
+async function keepSweeping(env) {
+  const beat = await one(env, `SELECT value FROM meta WHERE key = 'checked'`);
+  const mins = beat ? (Date.now() - new Date(beat.value).getTime()) / 60000 : 999;
+  if (!dueForSweep(mins, new Date().getUTCHours())) return;
+  await start(env, "watch.yml", { targets: "true" });
+}
 
 // Alive means: the last sweep succeeded, and one has run in the last two hours.
 async function health(env) {
@@ -685,7 +712,7 @@ async function command(request, env) {
   let said = c.said;
   if (b.command in ASKS || b.command === "rebuild") {
     const started = await startResumes(env);
-    if (!started) said = "Asked for. It starts at the next check, within five minutes.";
+    if (!started) said = "Asked for. It starts at the next sweep.";
   }
   if (b.command === "stop") {
     const job = jobs[0];
@@ -736,24 +763,38 @@ async function stopRun(env, which, uid, mineOnly) {
 // The apply run refuses a job it has already tried, so a deliberate retry
 // says so explicitly.
 async function startApply(env, issue) {
-  const r = await gh(env, `/repos/${codeRepo(env)}/actions/workflows/approve.yml/dispatches`, {
-    method: "POST",
-    body: JSON.stringify({ ref: env.BRANCH || "main", inputs: { issue: String(issue), force: "true" } }),
-  }).catch(() => null);
-  return !!(r && r.ok);
+  return start(env, "approve.yml", { issue: String(issue), force: "true" });
 }
 
 // Workflows live in the code repo; his resumes, issues and state in the private
 // one. With only REPO set, they are the same repo, as before the split.
 const codeRepo = (env) => env.CODE_REPO || env.REPO;
 
-async function startResumes(env) {
-  const p = gh(env, `/repos/${codeRepo(env)}/actions/workflows/resume.yml/dispatches`, {
-    method: "POST", body: JSON.stringify({ ref: env.BRANCH || "main" }),
+// Starting a workflow, and knowing whether it started.
+//
+// This used to hand the request to waitUntil and return true without looking,
+// so the card said "Writing your resume" whether or not anything was running.
+// On 2026-09-25 a resume sat like that for a quarter of an hour: the request
+// was recorded, the run never existed, and nothing anywhere said so. Moving the
+// card before the server answers is right; claiming the work began is not.
+//
+// The outcome is kept in meta so a failure that only ever happens in his
+// browser can still be read back afterwards.
+async function start(env, workflow, inputs) {
+  const r = await gh(env, `/repos/${codeRepo(env)}/actions/workflows/${workflow}/dispatches`, {
+    method: "POST",
+    body: JSON.stringify({ ref: env.BRANCH || "main", ...(inputs ? { inputs } : {}) }),
   }).catch(() => null);
-  if (env.later) { env.later(p); return true; }        // he sees the card move; the run follows
-  const r = await p;
-  return !!(r && r.ok);
+  const ok = !!(r && r.ok);
+  const said = ok ? "" : (r ? await r.text().catch(() => "") : "no answer").slice(0, 200);
+  await run(env, `INSERT INTO meta (key, value, at) VALUES ('dispatch', ?1, ?2)
+                  ON CONFLICT(key) DO UPDATE SET value = excluded.value, at = excluded.at`,
+    JSON.stringify({ workflow, ok, status: r ? r.status : 0, said }), now()).catch(() => {});
+  return ok;
+}
+
+async function startResumes(env) {
+  return start(env, "resume.yml");
 }
 
 // "Check now": start a boards sweep rather than only re-reading what the app
@@ -763,17 +804,12 @@ async function checkNow(env) {
   const last = await one(env, `SELECT value FROM meta WHERE key = 'asked'`);
   if (last && Date.now() - new Date(last.value).getTime() < 60e3)
     return json({ ok: true, said: "Already checking - give it a minute" });
-  const go = gh(env, `/repos/${codeRepo(env)}/actions/workflows/watch.yml/dispatches`, {
-    method: "POST", body: JSON.stringify({ ref: env.BRANCH || "main" }),
-  }).catch(() => null);
+  const started = await start(env, "watch.yml");
   await run(env, `INSERT INTO meta (key, value, at) VALUES ('asked', ?1, ?1)
                   ON CONFLICT(key) DO UPDATE SET value = excluded.value, at = excluded.at`, now());
-  // The next status poll shows whether it really started, so answer now.
-  if (env.later) env.later(go.then(() => run(env, `DELETE FROM meta WHERE key = 'runs'`)));
-  else {
-    const r = await go;
-    if (!r || !r.ok) return json({ ok: false, said: "Could not start a check - jobbot tries again within five minutes" });
-  }
+  if (!started)
+    return json({ ok: false, said: "Could not start a check. jobbot tries again on its own." });
+  if (env.later) env.later(run(env, `DELETE FROM meta WHERE key = 'runs'`));
   return json({ ok: true, said: "Checking the boards" });
 }
 

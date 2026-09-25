@@ -191,9 +191,16 @@
       const page = readPage();
       panel.innerHTML = '<div class="jb-head"><b>jobbot</b><span>Not on your board</span></div>' +
         '<div class="jb-title">' + esc(page.title) + "</div>" +
-        '<p class="jb-quiet">' + esc(page.company) + ". Add it and jobbot will treat it like any other posting: " +
-        "you can ask it for a resume.</p>" +
-        '<div class="jb-do"><button class="jb-btn jb-primary" data-go="add">Add to jobbot</button></div>' +
+        '<p class="jb-quiet">' + esc(page.company) +
+        (me ? ". Fill in what jobbot knows about you, or add the posting and it will write you a resume."
+            : ". Add it and jobbot will treat it like any other posting: you can ask for a resume.") + "</p>" +
+        '<div class="jb-do">' +
+          // His own details do not need a posting behind them. Most apply forms
+          // are not recognised - Workday and iCIMS rewrite the address - and
+          // until now that meant the panel offered nothing but a bookmark.
+          (me ? '<button class="jb-btn jb-primary" data-go="fill">Fill what I can</button>' : "") +
+          '<button class="jb-btn" data-go="add">Add to jobbot</button>' +
+        "</div>" +
         '<div id="jobbot-said"></div>';
       return;
     }
@@ -249,9 +256,10 @@
       return;
     }
     if (go === "fill") {
+      if (!me) return say("Set jobbot up first", "bad");
       const n = fill(me, questions);
       say(n ? "Filled " + n + (n === 1 ? " field. Read it before you send." : " fields. Read them before you send.")
-            : "Nothing here matched anything jobbot knows");
+            : "Nothing on this form matched anything jobbot knows about you");
       return;
     }
     if (go === "copy-all") {
@@ -308,6 +316,10 @@
       found = r.job;
       questions = r.questions || [];
       tab.textContent = "jobbot · " + r.job.company;
+      root.classList.add("jb-known");
+    } else if (me && document.querySelector("input, textarea")) {
+      // Not a posting it knows, but a form it can still help with.
+      tab.textContent = "jobbot · fill";
       root.classList.add("jb-known");
     }
   });
