@@ -727,6 +727,29 @@ check("the page has no leftover style placeholders", !/\$\{/.test(PAGE.slice(0, 
     calls.slice(-4).map((c) => c.url).join(" | "));
 }
 
+/* ------------------------------------------------ the worker's own clock --- */
+// GitHub's schedule is best-effort: a */5 cron came at gaps of 3 to 22 minutes
+// on 2026-09-25. Cloudflare's is punctual, so the worker decides when a sweep
+// is overdue and asks for one itself.
+{
+  const ran = { scheduled: async (p) => p };
+  const beat = async (whenIso) => body("/api/ingest", "POST",
+    { jobs: [], checked_at: whenIso }, { authorization: "Bearer robot" });
+  const sweeps = () => calls.filter((c) => /workflows\/watch\.yml\/dispatches/.test(c.url)).length;
+
+  await beat(new Date().toISOString());
+  const before = sweeps();
+  await worker.scheduled({}, env, ran);
+  check("a sweep a moment ago is left alone", sweeps() === before, `${sweeps()} vs ${before}`);
+
+  await beat(new Date(Date.now() - 40 * 60e3).toISOString());
+  await worker.scheduled({}, env, ran);
+  check("one forty minutes old is asked for", sweeps() > before, `${sweeps()} vs ${before}`);
+
+  const last = await (await get("/api/jobs", as)).json();
+  check("and the board still answers while it does", Array.isArray(last.jobs));
+}
+
 /* ------------------------------------------------- the browser extension --- */
 {
   // It cannot use the cookie: that is HttpOnly, and an extension's requests do

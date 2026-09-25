@@ -103,9 +103,18 @@ export default {
 // hour   the hour in UTC, 0-23. He is in Toronto: UTC-4 in summer, so 13 UTC
 //        is 9am for him and 1 UTC is 9pm.
 // Returns true to start a sweep now.
+// Toronto is UTC-4, so 13 UTC is 9am for him and 1 UTC is 9pm. Companies post
+// during their own working day; overnight sweeps last night found nothing for
+// hours. Runner minutes are free on a public repo, so the only real cost of
+// checking often is hammering other people's boards - three minutes is as fast
+// as that stays polite, and it is five times what GitHub was actually giving
+// him.
+const FAST = 3, SLOW = 25;
+
 function dueForSweep(mins, hour) {
-  // TODO(human): decide when a sweep is overdue.
-  return false;
+  if (!(mins >= 0)) return true;                     // never checked: check now
+  const awake = hour >= 13 || hour <= 1;             // 9am to 9pm his time
+  return mins >= (awake ? FAST : SLOW);
 }
 
 // Asks GitHub for a sweep when one is overdue. Two of these can never pile up:
