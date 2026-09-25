@@ -78,7 +78,14 @@ export default {
       if (path === "/api/check") return checkNow(env);
       return json({ error: "not found" }, 404);
     } catch (err) {
-      return json({ error: String((err && err.message) || err) }, 500);
+      const said = String((err && err.message) || err);
+      // The database refusing writes for the rest of the day reads like every
+      // other 500, and on 2026-09-25 that cost an hour of looking for a broken
+      // GitHub token instead. It says what it is now, wherever it surfaces.
+      if (/row write limit|exceeded .* limit/i.test(said))
+        return json({ error: "jobbot's database has used its writes for today. " +
+                             "It starts again at midnight UTC.", quota: true }, 503);
+      return json({ error: said }, 500);
     }
   },
 
@@ -87,8 +94,12 @@ export default {
   async scheduled(event, env, ctx) {
     const later = (p) => { if (ctx && ctx.waitUntil) ctx.waitUntil(p.catch(() => {})); return p; };
     const e = { ...env, later };
-    await keepSweeping(e);
-    await health(e);
+    // One of these failing must not stop the other: when the database is out of
+    // writes, keepSweeping threw and health never ran, so the one thing whose
+    // job is to notice trouble was the first thing the trouble silenced.
+    for (const step of [keepSweeping, health]) {
+      try { await step(e); } catch (err) { console.log("scheduled: " + step.name + ": " + err); }
+    }
   },
 };
 
