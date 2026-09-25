@@ -120,9 +120,17 @@ function dueForSweep(mins, hour) {
 // Asks GitHub for a sweep when one is overdue. Two of these can never pile up:
 // the workflow's concurrency group queues them one behind the other.
 async function keepSweeping(env) {
-  const beat = await one(env, `SELECT value FROM meta WHERE key = 'checked'`);
+  const [beat, tried] = await Promise.all([
+    one(env, `SELECT value FROM meta WHERE key = 'checked'`),
+    one(env, `SELECT value, at FROM meta WHERE key = 'dispatch'`).catch(() => null),
+  ]);
   const mins = beat ? (Date.now() - new Date(beat.value).getTime()) / 60000 : 999;
-  if (!dueForSweep(mins, new Date().getUTCHours())) return;
+  // A token that was refused is worth trying again every so often. He may have
+  // granted the permission since, and nothing else would ever find out - the
+  // warning would sit in his status line for good, long after it was true.
+  const refused = tried && (parse(tried.value) || {}).ok === false &&
+                  Date.now() - new Date(tried.at).getTime() > 10 * 60e3;
+  if (!dueForSweep(mins, new Date().getUTCHours()) && !refused) return;
   await start(env, "watch.yml", { targets: "true" });
 }
 
