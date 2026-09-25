@@ -261,10 +261,12 @@ def already_applied(t, prior):
 def to_posting(t):
     from .model import Posting
     ts = lambda v: datetime.fromisoformat(v) if v else None
-    return Posting(source=t["source"], org=t["org"], company=t["company"], title=t["title"],
-                   location=t["location"], url=t["url"], apply_url=t["apply_url"],
-                   posted_at=ts(t["posted_at"]), description=t["description"],
-                   deadline=ts(t["deadline"]), raw_id=t["raw_id"])
+    return Posting(source=t.get("source") or "", org=t.get("org") or "",
+                   company=t.get("company") or "", title=t.get("title") or "",
+                   location=t.get("location") or "", url=t.get("url") or "",
+                   apply_url=t.get("apply_url") or "",
+                   posted_at=ts(t.get("posted_at")), description=t.get("description") or "",
+                   deadline=ts(t.get("deadline")), raw_id=t.get("raw_id") or "")
 
 
 def posting_dict(m):
@@ -991,7 +993,19 @@ def requeue(uid):
         return False
     from . import community
     text = community.describe(had.get("url") or "") if had.get("url") else ""
-    pending[uid] = {"uid": uid, "company": had.get("company"), "title": had.get("title"),
+    # The ledger keeps no board, so read it off the address the posting lives at.
+    link = had.get("url") or had.get("apply_url") or ""
+    source, org = "", ""
+    for host, name in (("ashbyhq.com", "ashby"), ("lever.co", "lever"),
+                       ("greenhouse.io", "greenhouse"), ("myworkdayjobs.com", "workday"),
+                       ("myworkdaysite.com", "workday")):
+        if host in link:
+            source = name
+            parts = [x for x in link.split(host, 1)[-1].split("/") if x]
+            org = parts[0] if parts else ""
+            break
+    pending[uid] = {"uid": uid, "source": source, "org": org,
+                    "company": had.get("company"), "title": had.get("title"),
                     "location": had.get("location"), "url": had.get("url"),
                     "apply_url": had.get("apply_url"), "posted_at": had.get("posted_at"),
                     "deadline": had.get("deadline"), "tier": had.get("tier") or 3,
