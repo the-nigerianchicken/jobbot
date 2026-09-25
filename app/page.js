@@ -1029,8 +1029,13 @@ function renderBeat() {
   const broke = busyNow.find((b) => b.kind === "broken");
   const small = phone();
   slot.innerHTML = broke
-    ? '<span class="broken">Last check failed. <a href="' + esc(broke.url || "") +
-      '" target="_blank" rel="noopener">See why</a></span><button class="link" id="recheck">Try again</button>'
+    // Whatever is wrong, in its own words: a failed sweep is not the same thing
+    // as a token that is not allowed to start one, and only one of them is
+    // fixed by trying again.
+    ? '<span class="broken">' + esc(broke.says || "Last check failed") + '. ' +
+      (broke.url ? '<a href="' + esc(broke.url) + '" target="_blank" rel="noopener">' +
+        (/token/i.test(broke.says || "") ? "Fix it" : "See why") + "</a>" : "") + "</span>" +
+      '<button class="link" id="recheck">Try again</button>'
     : busyNow.length
     ? '<span class="working"><i class="spin"></i>' + esc(busyNow.map((b) => b.says +
         (b.n > 1 ? " (" + b.n + ")" : "")).join(", ")) + "</span>"
