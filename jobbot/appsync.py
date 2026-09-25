@@ -146,6 +146,10 @@ def _rebuild(uid, detail):
     _hint(uid, detail)
     tailor._mark(uid, "retry")
     MARKED.add(uid)
+    # A posting dropped from the queue before its resume existed is not
+    # reachable any other way; nothing rebuilds what is not queued.
+    if tailor.requeue(uid):
+        RESTORED.add(uid)
     tailor.request(uid, apply=False)
     REQUESTED.add(uid)
 

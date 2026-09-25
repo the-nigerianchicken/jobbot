@@ -180,6 +180,12 @@ def enqueue(new):
             continue
         pending.setdefault(m.posting.uid, posting_dict(m))
     store._save("pending.json", pending)
+    # Anything he has asked to have written again, which an older prune dropped
+    # out of the queue before its resume existed.
+    from .tailor import requeue
+    for uid, v in done.items():
+        if v.get("status") == "retry" and uid not in pending:
+            requeue(uid)
 
 
 def report(boards, postings, matches, new, drops, health, crit, args):
