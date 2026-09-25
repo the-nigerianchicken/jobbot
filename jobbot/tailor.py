@@ -241,7 +241,7 @@ def already_applied(t, prior):
     for p in prior:
         if t.get("raw_id") and t["raw_id"] in p["ids"]:
             return True
-        if not same_company((t["company"], t["org"]), p["company"]):
+        if not same_company((t.get("company") or "", t.get("org") or ""), p["company"]):
             continue
         want = role_tokens(p["role"])
         core, filler = want - FILLER, want & FILLER
@@ -981,9 +981,14 @@ def gh(*args):
 def requeue(uid):
     """Put a posting back in the queue from what the ledger remembers.
 
-    A job dropped from pending before its resume existed cannot be rebuilt,
-    because the resume side only ever looks at pending. Everything needed is on
-    the ledger row except the posting text, which is fetched again.
+    A job dropped from the queue before its resume existed cannot be rebuilt,
+    because the resume side only ever reads the queue. Everything needed is on
+    the ledger row except the posting text and which board it came from: the
+    text is fetched again, and the board is read off the address.
+
+    The row carries every key posting_dict writes. A partial one brought down
+    three sweeps in a row (2026-09-25): the queue is read by subscript in
+    several places, and a missing key is a crash in the middle of a run.
     """
     pending = _load("pending.json", {})
     if uid in pending:
@@ -991,27 +996,30 @@ def requeue(uid):
     had = _load("tailored.json", {}).get(uid)
     if not had:
         return False
-    from . import community
-    text = community.describe(had.get("url") or "") if had.get("url") else ""
-    # The ledger keeps no board, so read it off the address the posting lives at.
     link = had.get("url") or had.get("apply_url") or ""
-    source, org = "", ""
+    source = org = ""
     for host, name in (("ashbyhq.com", "ashby"), ("lever.co", "lever"),
                        ("greenhouse.io", "greenhouse"), ("myworkdayjobs.com", "workday"),
                        ("myworkdaysite.com", "workday")):
         if host in link:
             source = name
-            parts = [x for x in link.split(host, 1)[-1].split("/") if x]
-            org = parts[0] if parts else ""
+            rest = [x for x in link.split(host, 1)[-1].split("/") if x]
+            org = rest[0] if rest else ""
             break
-    pending[uid] = {"uid": uid, "source": source, "org": org,
-                    "company": had.get("company"), "title": had.get("title"),
-                    "location": had.get("location"), "url": had.get("url"),
-                    "apply_url": had.get("apply_url"), "posted_at": had.get("posted_at"),
-                    "deadline": had.get("deadline"), "tier": had.get("tier") or 3,
-                    "reasons": ["put back to be written again"],
-                    "description": text or "",
-                    "queued_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    from . import community
+    text = community.describe(link) if link else ""
+    pending[uid] = {
+        "uid": uid, "tier": had.get("tier") or 3,
+        "reasons": ["put back to be written again"],
+        "source": source, "org": org,
+        "company": had.get("company") or "", "title": had.get("title") or "",
+        "location": had.get("location") or "", "url": had.get("url") or "",
+        "apply_url": had.get("apply_url") or "",
+        "posted_at": had.get("posted_at"), "deadline": had.get("deadline"),
+        "raw_id": had.get("raw_id") or "", "description": text or "",
+        "terms": had.get("terms") or None,
+        "queued_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
     _save("pending.json", pending)
     return True
 
