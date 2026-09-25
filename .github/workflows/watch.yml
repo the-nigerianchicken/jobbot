@@ -130,6 +130,32 @@ jobs:
       - name: Notify
         run: python -m jobbot.notify data/queue.json ${{ inputs.test_alert && '--test' || '' }}
 
+      # Each sweep books the next one.
+      #
+      # GitHub's schedule is best-effort: */5 came at gaps of 3, 19, 14, 16, 11,
+      # 6, 22 and 17 minutes on 2026-09-25. A run that starts its own successor
+      # keeps the interval honest, and because a sweep takes a couple of minutes
+      # the chain paces itself without sleeping or burning a runner on nothing.
+      #
+      # The workflow's own GITHUB_TOKEN may start runs, which the app's token may
+      # not - so this works whatever the app's token is allowed to do. The
+      # schedule above is the failsafe: if a run ever dies before this step, the
+      # next scheduled one starts the chain again.
+      - name: Book the next sweep
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          hour=$(date -u +%-H)
+          # 13:00-01:59 UTC is 9am to 9pm in Toronto, when companies post.
+          if [ "$hour" -lt 13 ] && [ "$hour" -gt 1 ]; then
+            echo "outside his hours - the schedule has it"; exit 0
+          fi
+          waiting=$(gh run list -w watch.yml --json status \
+            --jq '[.[] | select(.status == "queued" or .status == "waiting")] | length')
+          if [ "$waiting" != "0" ]; then echo "one is already waiting its turn"; exit 0; fi
+          gh workflow run watch.yml -f targets=true && echo "next sweep booked"
+
       # The app is what he looks at: tell it what happened, and pick up
       # anything he tapped while this was running.
       - name: Sync the app
