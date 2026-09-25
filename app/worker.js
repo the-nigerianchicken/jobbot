@@ -128,8 +128,11 @@ async function keepSweeping(env) {
   // A token that was refused is worth trying again every so often. He may have
   // granted the permission since, and nothing else would ever find out - the
   // warning would sit in his status line for good, long after it was true.
+  // A refusal costs one rejected API call to re-test, nothing more, so it is
+  // worth asking often: the moment he fixes the token the warning goes away by
+  // itself rather than waiting out a long timer.
   const refused = tried && (parse(tried.value) || {}).ok === false &&
-                  Date.now() - new Date(tried.at).getTime() > 10 * 60e3;
+                  Date.now() - new Date(tried.at).getTime() > 2 * 60e3;
   if (!dueForSweep(mins, new Date().getUTCHours()) && !refused) return;
   await start(env, "watch.yml", { targets: "true" });
 }
