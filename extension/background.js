@@ -28,34 +28,32 @@ async function ask(path, body) {
 }
 
 // Chrome cannot download from another origin with a header on the request, so
-// the file is fetched here and handed over as data.
-async function resume(path, name) {
+// the file is fetched here, where the key can be sent, and handed to the page
+// as text.
+//
+// It is not saved here. A service worker has no URL.createObjectURL, so this
+// used to pass a data: URL to chrome.downloads - which Chrome refuses, and the
+// fallback opened the PDF in a tab, where Windows offered to share it instead
+// of saving it (2026-09-26). The page can make a blob and save it properly, and
+// it can also put the file straight into the form's file picker.
+async function resume(path) {
   const { base, key } = await settings();
   if (!base || !key) return { error: "setup" };
-  const url = base.replace(/\/$/, "") + "/file?path=" + encodeURIComponent(path) +
-              "&save=" + encodeURIComponent(name.replace(/\.pdf$/i, ""));
+  const url = base.replace(/\/$/, "") + "/file?path=" + encodeURIComponent(path);
   const r = await fetch(url, { headers: { "x-jobbot-key": key } }).catch(() => null);
   if (!r || !r.ok) return { error: "could not fetch your resume" };
-  const buf = await r.arrayBuffer();
+  const bytes = new Uint8Array(await r.arrayBuffer());
   let binary = "";
-  const bytes = new Uint8Array(buf);
   for (let i = 0; i < bytes.length; i += 8192)
     binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
-  const id = await chrome.downloads.download({
-    url: "data:application/pdf;base64," + btoa(binary), filename: name, saveAs: false,
-  }).catch(() => null);
-  if (id) return { ok: true, name };
-  // If the download is refused, open it instead: the tab carries his own
-  // session cookie for jobbot, so the file still arrives.
-  await chrome.tabs.create({ url, active: true }).catch(() => null);
-  return { ok: true, name, said: "Opened it in a tab" };
+  return { ok: true, b64: btoa(binary) };
 }
 
 const HANDLERS = {
   lookup: (m) => ask("/api/lookup?url=" + encodeURIComponent(m.url)),
   capture: (m) => ask("/api/capture", m.posting),
   command: (m) => ask("/api/command", { uid: m.uid, command: m.command }),
-  resume: (m) => resume(m.path, m.name),
+  resume: (m) => resume(m.path),
   options: async () => { chrome.runtime.openOptionsPage(); return { ok: true }; },
   settings: async () => {
     const { base } = await settings();

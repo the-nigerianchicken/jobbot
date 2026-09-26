@@ -27,12 +27,16 @@ On an application form, jobbot appears in the bottom right.
 **When it recognises the posting** — matched on the page's address, so the
 apply form and the posting both count:
 
-- **Save resume** puts the PDF jobbot wrote for this job in your downloads,
-  named the way a recruiter should see it, ready for the file picker.
+- **Put my resume in** hands the PDF jobbot wrote for this job straight to the
+  form's file picker, named the way a recruiter should see it. No download, no
+  file dialog.
 - **Fill what I can** writes in the fields it can match: the answers jobbot
   drafted for this job first, then your name, email, phone, school and the
-  rest. It fills nothing you have already typed, skips passwords and file
-  pickers, and never presses send.
+  rest - and puts the resume in as well, since that is the one field that is
+  always asked for and can never be typed. It fills nothing you have already
+  typed, skips passwords, and never presses send.
+- **Save resume** puts the PDF in your downloads instead, for a form that wants
+  it some other way.
 - Every answer is listed. Tap one to copy it, or copy the lot.
 - **I applied** moves the job to Applied, from here.
 

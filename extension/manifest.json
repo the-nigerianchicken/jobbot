@@ -3,7 +3,7 @@
   "name": "jobbot",
   "version": "1.0.0",
   "description": "Your tailored resume and answers, on the form you are filling in.",
-  "permissions": ["storage", "scripting", "activeTab", "downloads"],
+  "permissions": ["storage", "scripting", "activeTab"],
   "host_permissions": ["https://*/*"],
   "background": { "service_worker": "background.js" },
   "options_page": "options.html",

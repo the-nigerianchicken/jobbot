@@ -119,6 +119,62 @@
     return hits / one.size;
   }
 
+  // Where a resume goes on this form. Prefer a picker that says what it wants;
+  // otherwise the first one on the page, which on Greenhouse and Lever is the
+  // resume every time.
+  function resumeInput() {
+    const files = [...document.querySelectorAll('input[type="file"]')]
+      .filter((el) => !el.disabled && (el.offsetParent !== null || el.closest("label, .field, [class*=upload]")));
+    if (!files.length) return null;
+    const wants = /resume|cv\b|curriculum/i;
+    return files.find((el) => wants.test(labelOf(el) + " " + (el.name || "") + " " + (el.id || "")
+                                        + " " + (el.getAttribute("aria-label") || ""))) || files[0];
+  }
+
+  async function resumeFile(j, me) {
+    const name = ((me && me.name ? me.name + " " : "") + "Resume " + j.company)
+      .replace(/[^A-Za-z0-9 _.-]+/g, "").replace(/\s+/g, "_") + ".pdf";
+    const r = await ask({ kind: "resume", path: j.pdf });
+    if (r.error || !r.b64) return { error: r.error || "could not read your resume" };
+    const raw = atob(r.b64);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    return { file: new File([bytes], name, { type: "application/pdf" }), name };
+  }
+
+  // A file input cannot be typed into, but it can be given files - the same way
+  // a drop would. Some forms listen for the drop rather than the change, so both
+  // are sent. Nothing is submitted: the form is his to send.
+  function attach(input, file) {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    try {
+      input.files = dt.files;
+    } catch (e) {
+      return false;
+    }
+    if (!input.files || !input.files.length) return false;
+    for (const kind of ["input", "change"])
+      input.dispatchEvent(new Event(kind, { bubbles: true }));
+    const zone = input.closest("[class*=drop], [class*=upload], label") || input.parentElement;
+    if (zone) {
+      const drop = new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt });
+      zone.dispatchEvent(drop);
+    }
+    return true;
+  }
+
+  function save(file) {
+    const url = URL.createObjectURL(file);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  }
+
   function fill(me, questions) {
     const fields = [...document.querySelectorAll("input, textarea, select")].filter((el) => {
       if (el.disabled || el.readOnly || el.offsetParent === null) return false;
@@ -211,8 +267,11 @@
       '<div class="jb-title">' + esc(j.title) + "</div>" +
       (j.note ? '<p class="jb-quiet">' + esc(j.note) + "</p>" : "") +
       '<div class="jb-do">' +
-        (j.pdf ? '<button class="jb-btn jb-primary" data-go="resume">Save resume</button>' : "") +
-        '<button class="jb-btn" data-go="fill">Fill what I can</button>' +
+        (j.pdf && resumeInput()
+          ? '<button class="jb-btn jb-primary" data-go="attach">Put my resume in</button>' : "") +
+        '<button class="jb-btn' + (j.pdf && resumeInput() ? "" : " jb-primary") +
+          '" data-go="fill">Fill what I can</button>' +
+        (j.pdf ? '<button class="jb-btn" data-go="resume">Save resume</button>' : "") +
       "</div>" +
       (answered.length
         ? '<div class="jb-qs">' + answered.map((q, i) =>
@@ -248,18 +307,44 @@
     if (go === "resume") {
       busy = true;
       say("Saving");
-      const name = ((me && me.name ? me.name + " " : "") + "Resume " + j.company)
-        .replace(/[^A-Za-z0-9 _.-]+/g, "").replace(/\s+/g, "_") + ".pdf";
-      const r = await ask({ kind: "resume", path: j.pdf, name });
+      const got = await resumeFile(j, me);
       busy = false;
-      say(r.error || r.said || "Saved to your downloads", r.error ? "bad" : "");
+      if (got.error) return say(got.error === "setup" ? "Set jobbot up first" : got.error, "bad");
+      save(got.file);
+      say("Saved as " + got.name);
+      return;
+    }
+    if (go === "attach") {
+      const input = resumeInput();
+      if (!input) return say("No file picker on this page - use Save resume", "bad");
+      busy = true;
+      say("Reading your resume");
+      const got = await resumeFile(j, me);
+      busy = false;
+      if (got.error) return say(got.error === "setup" ? "Set jobbot up first" : got.error, "bad");
+      if (!attach(input, got.file)) {
+        save(got.file);
+        return say("This picker would not take it - saved to your downloads instead", "bad");
+      }
+      say("Resume attached as " + got.name + ". Check it before you send.");
       return;
     }
     if (go === "fill") {
       if (!me) return say("Set jobbot up first", "bad");
       const n = fill(me, questions);
-      say(n ? "Filled " + n + (n === 1 ? " field. Read it before you send." : " fields. Read them before you send.")
-            : "Nothing on this form matched anything jobbot knows about you");
+      // The resume is the one field that is always asked for and can never be
+      // typed, so filling a form without it leaves the tedious part undone.
+      const input = j && j.pdf && resumeInput();
+      let withResume = "";
+      if (input) {
+        busy = true;
+        const got = await resumeFile(j, me);
+        busy = false;
+        if (!got.error && attach(input, got.file)) withResume = ", and your resume";
+      }
+      say(n || withResume
+        ? "Filled " + n + (n === 1 ? " field" : " fields") + withResume + ". Read it before you send."
+        : "Nothing on this form matched anything jobbot knows about you");
       return;
     }
     if (go === "copy-all") {
