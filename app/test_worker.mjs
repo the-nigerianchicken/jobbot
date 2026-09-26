@@ -788,6 +788,31 @@ check("the page has no leftover style placeholders", !/\$\{/.test(PAGE.slice(0, 
   const moved = (await (await get("/api/jobs", as)).json()).jobs.find((j) => j.uid === "cost");
   check("but a posting that changed is written", moved && moved.state === "needs" && moved.since !== after.since,
     JSON.stringify(moved && [moved.state, moved.since === after.since]));
+
+  // ...and that hold is for a stop HE made. A card sits at "new" for other
+  // reasons - jobbot finding the resume missing and putting it back - and
+  // reading a stop off the state alone kept a resume that had just been written
+  // off the board for a quarter of an hour (2026-09-26).
+  const asRobot = { authorization: "Bearer robot" };
+  const nostop = (state, extra = {}) => body("/api/ingest", "POST", { jobs: [
+    { uid: "nostop", company: "nostopco", title: "Backend Engineer Intern, Summer 2027", state,
+      posted_at: when, seen_at: when, ...extra }] }, asRobot);
+  await nostop("new");
+  await nostop("ready", { folder: "resumes/Co/Intern", pdf: "resumes/Co/Intern/r.pdf" });
+  const arrived = (await (await get("/api/jobs", as)).json()).jobs.find((j) => j.uid === "nostop");
+  check("a resume arriving for a card he never stopped is shown",
+    arrived && arrived.state === "ready", JSON.stringify(arrived && arrived.state));
+
+  // The stop itself still sticks.
+  const didstop = (state, extra = {}) => body("/api/ingest", "POST", { jobs: [
+    { uid: "didstop", company: "didstopco", title: "Platform Engineer Intern, Summer 2027", state,
+      posted_at: when, seen_at: when, ...extra }] }, asRobot);
+  await didstop("building", { note: "Writing your resume" });
+  await body("/api/command", "POST", { uid: "didstop", command: "stop" }, as);
+  await didstop("ready", { folder: "resumes/Co/Intern", pdf: "resumes/Co/Intern/r.pdf" });
+  const held = (await (await get("/api/jobs", as)).json()).jobs.find((j) => j.uid === "didstop");
+  check("but one he did stop stays stopped", held && held.state === "new",
+    JSON.stringify(held && held.state));
 }
 
 /* ------------------------------------------------ the worker's own clock --- */

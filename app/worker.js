@@ -905,7 +905,14 @@ async function ingest(request, env) {
     // A job he just stopped is back at new. A run that was already writing it
     // finishes and reports "ready", and without this the card he cancelled
     // reappears a few minutes later as if he had never touched it.
-    const stopped = his && have.state === "new" && (j.state === "building" || j.state === "ready");
+    //
+    // Ask whether he actually stopped it, rather than reading it off the state.
+    // A card sits at "new" for other reasons - jobbot found the resume missing
+    // and put it back - and treating that as a stop pinned a resume that had
+    // just been written out of the board for a quarter of an hour (2026-09-26).
+    const stopped = his && have.state === "new" && (j.state === "building" || j.state === "ready")
+      && !!(await one(env, `SELECT 1 AS yes FROM events WHERE uid = ?1 AND kind = 'stop' AND at > ?2`,
+                      j.uid, fresh));
     const keep = (his && HIS.has(have.state) && !HIS.has(j.state)) || stopped;
     const values = JOB_COLS.map((c) => (c === "knockout" ? (j[c] ? 1 : 0) : (j[c] ?? null)));
     const marks = JOB_COLS.map((_, i) => `?${i + 1}`).join(", ");
