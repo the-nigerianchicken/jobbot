@@ -27,6 +27,10 @@ def listed(company, title, loc):
     return q
 
 
+MILITARY = ("Summer 2027 internship. Prior leadership through academic achievement, "
+            "internships, campus involvement, athletics, or military service.")
+SPONSOR = "Summer 2027 internship. Sponsorship is not available for this role."
+
 SHOULD_DROP = [
     (p("Faire", "Staff Software Engineer - Code Authoring", "Toronto, ON"), "staff role"),
     (p("Robinhood", "Senior Staff Software Developer, Core Infrastructure", "Toronto, Canada"), "senior/staff"),
@@ -42,6 +46,8 @@ SHOULD_DROP = [
     (p("Snowflake", "Senior Software Engineer, Notebooks", "CA-Ontario-Toronto"), "senior"),
     (p("SomeCo", "Data Analyst Intern", "Toronto, ON"), "banned role type"),
     (p("SomeCo", "Software Engineer Intern", "London, United Kingdom"), "geography"),
+    # The same rule still has to work when the posting really does say it.
+    (p("GDIT", "Software Development Intern", "Bossier City, LA", desc=SPONSOR), "will not sponsor"),
     # Age caps (2026-09-17): 24h, tier 1 up to 72h. The Cohere posting from May.
     (p("cohere", "Machine Learning Intern/Co-op  (Winter 2027)", "Canada", hours_ago=24*127), "posted 2026-05-13"),
     (p("Cohere", "Software Engineering Intern (Winter 2027)", "Toronto, ON", hours_ago=80), "tier 1 over 72h"),
@@ -61,6 +67,11 @@ SHOULD_DROP = [
 ]
 
 SHOULD_KEEP = [
+    # 2026-09-26: "itar" sits inside "military", and the sponsorship phrases were
+    # matched as substrings. 42 of the 74 postings this rule had turned away were
+    # US roles whose only offence was the word "military" in their boilerplate.
+    (p("Booz Allen", "Software Developer Intern", "San Diego, CA", desc=MILITARY), 3),
+    (p("Upbound Group", "Software Engineer Intern", "Draper, UT", desc=MILITARY), 3),
     # Tiers (2026-09-16): 1 target company, 2 any other in Canada, 3 any other US/remote.
     (p("DoorDash Canada", "Software Engineer, Intern (Summer 2027) - TOR", "Toronto, ON"), 1),
     (p("SmallCo", "Software Engineer Intern (Summer 2027)", "Waterloo, ON"), 2),

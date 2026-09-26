@@ -104,7 +104,7 @@ def cmd_watch(args):
     store.save_registry(reg)
 
     if not args.dry_run:
-        write_filtered(dropped, crit)
+        write_filtered(dropped + recheck_queue(crit, targets), crit)
         for m in new:
             store.mark_seen(seen, m.posting)
         store.save_seen(seen)
@@ -126,6 +126,43 @@ def cmd_watch(args):
 
 
 FILTERED = Path(store.DATA) / "filtered.json"
+
+
+def recheck_queue(crit, targets):
+    """Postings already queued that the current rules would no longer take.
+
+    The board is rebuilt from the queue on every sweep, but the queue was only
+    ever checked on the way in. So editing a rule changed what arrived next and
+    nothing that had already arrived: on 2026-09-26, 32 postings for terms that
+    had ended and 6 asking for a PhD stayed in New, and would have until they
+    aged out a week later.
+
+    Only postings he has not touched. Anything he asked for, anything with a
+    resume, and anything he has applied to is his decision, not the rules'.
+    """
+    from . import tailor
+    pending = store._load("pending.json", {})
+    keep, out = {}, []
+    want, approved = tailor.requested(), tailor.approved_uids()
+    ledger = tailor._load("tailored.json", {})
+    for uid, row in pending.items():
+        if uid in want or uid in approved or uid in ledger:
+            keep[uid] = row
+            continue
+        try:
+            posting = tailor.to_posting(row)
+        except Exception:
+            keep[uid] = row                     # unreadable row: not ours to drop
+            continue
+        m, why = match.classify(posting, crit, targets)
+        if m is not None or not why or why.startswith("posted too long ago"):
+            keep[uid] = row                     # age is handled elsewhere, by date
+            continue
+        out.append((posting, why))
+    if out:
+        store._save("pending.json", keep)
+        print(f"queue: {len(out)} no longer match the rules")
+    return out
 
 
 def write_filtered(dropped, crit):

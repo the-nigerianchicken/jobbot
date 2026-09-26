@@ -226,7 +226,11 @@ def classify(posting, crit, targets=None):
     # Canadian location alongside US ones stays, since he can take that seat.
     elig = crit["eligibility"]
     if not in_canada:
-        blocker = _any_in_loose(elig.get("drop_outside_canada_if_description_contains", []), desc)
+        # Whole words, not substrings: "itar" sits inside "military", and on
+        # 2026-09-26 that was turning away 42 of the 74 postings this rule had
+        # dropped - every JD that mentioned military service in its boilerplate.
+        # These are all complete phrases, so there is nothing here to prefix-match.
+        blocker = _any_in(elig.get("drop_outside_canada_if_description_contains", []), desc)
         if blocker:
             return None, f"needs US work authorization ({blocker[0]})"
 
