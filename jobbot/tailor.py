@@ -417,6 +417,25 @@ def open_postings(record=True):
     return sorted(out, key=queue)
 
 
+def resume_on_disk(v):
+    """Is the resume this ledger entry claims actually written?
+
+    True when it cannot be answered. A checkout without his resumes at all is a
+    checkout problem, and answering "no resume" to it would take every ready
+    card off the board at once - far worse than the one stale card this catches.
+    """
+    folder = v.get("folder")
+    if not folder:
+        return False
+    if not (ROOT / "resumes").is_dir():
+        return True
+    here = ROOT / folder
+    if not here.is_dir():
+        return False
+    # A folder prepared but never written holds only the brief and the JD.
+    return bool(list(here.glob("*.pdf")) or (here / "resume.json").exists())
+
+
 def stuck_requests(record=True):
     """Requests that cannot turn into a resume, so the app can stop saying "writing".
 
@@ -429,7 +448,16 @@ def stuck_requests(record=True):
         if uid in pending:
             continue
         v = ledger.get(uid, {})
-        if v.get("status") in ("resume_ready", "in_progress", "cannot_build", "skipped") or v.get("folder"):
+        # A resume that is already written is not a request to write one.
+        if v.get("status") in ("in_progress", "cannot_build", "skipped") or resume_on_disk(v):
+            continue
+        # He has asked for this, the queue no longer has it, and the ledger
+        # remembers enough to put it back. Snowflake sat like this: asked for,
+        # the resume lost with the runner that wrote it, and no way to reach it
+        # again - a tap that did nothing, for as long as he kept tapping.
+        if record and requeue(uid):
+            pending = _load("pending.json", {})
+            print(f"{v.get('company') or uid}: put back in the queue to be written again")
             continue
         stuck.append(uid)
         if record:

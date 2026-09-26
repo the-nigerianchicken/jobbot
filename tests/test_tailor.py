@@ -247,3 +247,68 @@ def test_ready_means_the_resume_is_there():
 
 test_ready_means_the_resume_is_there()
 print("a card says Ready only when the resume is there")
+
+
+# 2026-09-26: he tapped "write it again" on Snowflake and nothing happened, for
+# as long as he kept tapping. The resume had been lost with the runner that
+# wrote it, and the posting had already left the queue - and the resume side
+# only ever reads the queue. Asking again has to be able to reach it.
+def test_asking_again_reaches_a_posting_that_left_the_queue():
+    import importlib, json, os, tempfile
+    from pathlib import Path
+    from jobbot import paths as _paths
+    overrides = ("JOBBOT_PRIVATE", "JOBBOT_OUT", "JOBBOT_DATA", "JOBBOT_PIPELINE",
+                 "JOBBOT_CRITERIA", "JOBBOT_ANSWERS", "JOBBOT_TARGETS")
+    was = {k: os.environ.pop(k, None) for k in overrides}
+    home = Path(tempfile.mkdtemp())
+    (home / "data").mkdir()
+    (home / "resumes").mkdir()
+    os.environ["JOBBOT_PRIVATE"] = str(home)
+    try:
+        importlib.reload(_paths)
+        # store caches the data directory at import, and tailor reads through it.
+        importlib.reload(importlib.import_module("jobbot.store"))
+        t = importlib.reload(importlib.import_module("jobbot.tailor"))
+        (home / "data" / "pending.json").write_text("{}")
+        (home / "data" / "requested.json").write_text(json.dumps(
+            {"snow": {"apply": False, "at": "2026-09-25T17:19:23+00:00"}}))
+        (home / "data" / "tailored.json").write_text(json.dumps({"snow": {
+            "status": "resume_ready", "company": "Snowflake", "title": "SWE Intern",
+            "folder": "resumes/Snowflake/SWE Intern", "pdf": "resumes/Snowflake/SWE Intern/r.pdf",
+            "url": "https://boards.greenhouse.io/snowflake/jobs/1"}}))
+        community = importlib.import_module("jobbot.community")
+        described = community.describe
+        community.describe = lambda url: "The posting, fetched again. " * 20
+        try:
+            stuck = t.stuck_requests()
+        finally:
+            community.describe = described
+        back = json.loads((home / "data" / "pending.json").read_text())
+        assert stuck == [], stuck
+        assert "snow" in back, "it never made it back into the queue"
+        assert back["snow"]["company"] == "Snowflake"
+        # Every key the queue is read by subscript for.
+        for k in t.ROW:
+            assert k in back["snow"], f"requeued row is missing {k}"
+
+        # And a resume that really is on disk is not a request to write another.
+        built = home / "resumes" / "Snowflake" / "SWE Intern"
+        built.mkdir(parents=True)
+        (built / "resume.json").write_text("{}")
+        (home / "data" / "pending.json").write_text("{}")
+        assert t.stuck_requests() == []
+        assert json.loads((home / "data" / "pending.json").read_text()) == {}, \
+            "rebuilt a resume that was already there"
+    finally:
+        os.environ.pop("JOBBOT_PRIVATE", None)
+        for k, v in was.items():
+            if v is not None:
+                os.environ[k] = v
+        importlib.reload(_paths)
+        importlib.reload(importlib.import_module("jobbot.store"))
+        importlib.reload(importlib.import_module("jobbot.tailor"))
+        importlib.reload(importlib.import_module("jobbot.seed_store"))
+
+
+test_asking_again_reaches_a_posting_that_left_the_queue()
+print("asking again reaches a posting that has left the queue")

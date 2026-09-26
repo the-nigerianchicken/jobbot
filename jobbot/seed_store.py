@@ -121,22 +121,8 @@ def failed(errors, asked):
 
 
 def written(v):
-    """Is the resume this ledger entry claims actually on disk?
-
-    True when this cannot be answered. A checkout without his resumes at all is
-    a checkout problem, and answering "no resume" to it would take every ready
-    card off the board at once - far worse than the one stale card this catches.
-    """
-    folder = v.get("folder")
-    if not folder:
-        return False
-    if not (ROOT / "resumes").is_dir():
-        return True                       # nothing to check against
-    here = ROOT / folder
-    if not here.is_dir():
-        return False
-    # A folder prepared but never written holds only the brief and the JD.
-    return bool(list(here.glob("*.pdf")) or (here / "resume.json").exists())
+    """Is the resume this ledger entry claims actually on disk?"""
+    return tailor.resume_on_disk(v)
 
 
 def shots(folder):
