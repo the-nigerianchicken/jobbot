@@ -104,7 +104,7 @@ def cmd_watch(args):
     store.save_registry(reg)
 
     if not args.dry_run:
-        write_filtered(dropped + recheck_queue(crit, targets), crit)
+        write_filtered(dropped, crit, withdrawn=recheck_queue(crit, targets))
         for m in new:
             store.mark_seen(seen, m.posting)
         store.save_seen(seen)
@@ -165,16 +165,23 @@ def recheck_queue(crit, targets):
     return out
 
 
-def write_filtered(dropped, crit):
+def write_filtered(dropped, crit, withdrawn=()):
     """What the rules turned away this run, for the app's "Filtered out" list.
 
     Not committed: the sync step at the end of this same job sends it, and a
     rule that is wrong shows up there instead of as a job he never hears of.
+
+    `withdrawn` is the postings that were on his board until this run took them
+    off. near_miss exists to keep the bulk of every board out of this list, and
+    it needs a posted date to do that - but these are not board noise, they are
+    cards disappearing from under him, and a card that vanishes without a reason
+    is the thing he asked never to happen. They are always listed.
     """
     from .tailor import display_company
+    always = {p.uid for p, _ in withdrawn}
     seen, out = set(), []
-    for p, why in dropped:
-        if p.uid in seen or not match.near_miss(p, why, crit):
+    for p, why in list(withdrawn) + list(dropped):
+        if p.uid in seen or (p.uid not in always and not match.near_miss(p, why, crit)):
             continue
         seen.add(p.uid)
         out.append({"uid": p.uid, "company": display_company(p.company, p.org), "title": p.title,
@@ -183,6 +190,9 @@ def write_filtered(dropped, crit):
                     "posted_at": p.posted_at.isoformat() if p.posted_at else None,
                     "deadline": p.deadline.isoformat() if p.deadline else None,
                     "description": (p.description or "")[:12000]})
+    # Withdrawals first, so the cap never drops the one posting whose absence
+    # he would otherwise have to guess at.
+    out.sort(key=lambda f: f["uid"] not in always)
     FILTERED.write_text(json.dumps(out[:400], indent=1), encoding="utf-8")
     print(f"filtered out, worth a look: {len(out)}")
 
