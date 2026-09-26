@@ -198,3 +198,52 @@ def test_resumes_are_written_where_they_are_kept():
 
 test_resumes_are_written_where_they_are_kept()
 print("resumes are written into the tree that is committed")
+
+
+# 2026-09-25: the ledger said Snowflake's resume was ready, with a pdf, and
+# resumes/Snowflake did not exist - the file had been written into the wrong
+# checkout and thrown away. A card promising a resume he cannot open is worse
+# than no card.
+def test_ready_means_the_resume_is_there():
+    import importlib, json, os, tempfile
+    from pathlib import Path
+    from jobbot import paths as _paths
+    overrides = ("JOBBOT_PRIVATE", "JOBBOT_OUT", "JOBBOT_DATA", "JOBBOT_PIPELINE",
+                 "JOBBOT_CRITERIA", "JOBBOT_ANSWERS", "JOBBOT_TARGETS")
+    was = {k: os.environ.pop(k, None) for k in overrides}
+    home = Path(tempfile.mkdtemp())
+    os.environ["JOBBOT_PRIVATE"] = str(home)
+    try:
+        importlib.reload(_paths)
+        importlib.reload(importlib.import_module("jobbot.tailor"))
+        ss = importlib.reload(importlib.import_module("jobbot.seed_store"))
+        built = home / "resumes" / "Mercury" / "Intern"
+        built.mkdir(parents=True)
+        (built / "resume.json").write_text("{}")
+        assert ss.written({"folder": "resumes/Mercury/Intern"}) is True
+        assert ss.written({"folder": "resumes/Snowflake/Intern"}) is False
+        assert ss.written({}) is False
+        # A folder prepared but never written is not a resume.
+        empty = home / "resumes" / "Notion" / "Intern"
+        empty.mkdir(parents=True)
+        (empty / "brief.md").write_text("x")
+        assert ss.written({"folder": "resumes/Notion/Intern"}) is False
+        # And a checkout with no resumes at all is not an answer about any of them.
+        bare = Path(tempfile.mkdtemp())
+        os.environ["JOBBOT_PRIVATE"] = str(bare)
+        importlib.reload(_paths)
+        importlib.reload(importlib.import_module("jobbot.tailor"))
+        ss = importlib.reload(importlib.import_module("jobbot.seed_store"))
+        assert ss.written({"folder": "resumes/Mercury/Intern"}) is True
+    finally:
+        os.environ.pop("JOBBOT_PRIVATE", None)
+        for k, v in was.items():
+            if v is not None:
+                os.environ[k] = v
+        importlib.reload(_paths)
+        importlib.reload(importlib.import_module("jobbot.tailor"))
+        importlib.reload(importlib.import_module("jobbot.seed_store"))
+
+
+test_ready_means_the_resume_is_there()
+print("a card says Ready only when the resume is there")

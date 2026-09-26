@@ -120,6 +120,25 @@ def failed(errors, asked):
     return "needs", "The resume could not be built - tap Write it again"
 
 
+def written(v):
+    """Is the resume this ledger entry claims actually on disk?
+
+    True when this cannot be answered. A checkout without his resumes at all is
+    a checkout problem, and answering "no resume" to it would take every ready
+    card off the board at once - far worse than the one stale card this catches.
+    """
+    folder = v.get("folder")
+    if not folder:
+        return False
+    if not (ROOT / "resumes").is_dir():
+        return True                       # nothing to check against
+    here = ROOT / folder
+    if not here.is_dir():
+        return False
+    # A folder prepared but never written holds only the brief and the JD.
+    return bool(list(here.glob("*.pdf")) or (here / "resume.json").exists())
+
+
 def shots(folder):
     """Screenshots the apply run left behind, so he can see where it stopped."""
     if not folder:
@@ -183,6 +202,14 @@ def job_rows():
                 state, note = "working", "Applying"
             elif status == "build_failed":
                 state, note = failed(v.get("errors"), uid in want)
+            elif not written(v):
+                # The ledger says there is a resume and there is no file. That
+                # happened for real: resumes were being written into the wrong
+                # checkout and thrown away with the runner (2026-09-25,
+                # Snowflake), and the card sat there saying Ready. A card that
+                # promises a resume he cannot open is worse than no card, so it
+                # goes back to being a job he can ask for again.
+                state, note = "new", None
             else:
                 state, note = "ready", None
         elif status == "in_progress":
