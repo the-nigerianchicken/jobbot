@@ -461,8 +461,17 @@ let quiet = pushes.length;
 await worker.scheduled({}, env, { waitUntil: () => {} });
 check("a healthy jobbot says nothing", pushes.length === quiet);
 
+// A run can go red after it has already recorded everything it found - the
+// booking step at the end is the usual culprit. While the heartbeat is moving,
+// postings are arriving, and telling him nothing is coming in would be wrong.
 await env.DB.prepare("DELETE FROM meta WHERE key = 'runs'").bind().run();
 asGitHub([{ conclusion: "failure", created_at: iso(0.2), html_url: "https://x" }]);
+await worker.scheduled({}, env, { waitUntil: () => {} });
+check("a red run with a beating heart says nothing", pushes.length === quiet);
+
+// The same red run, once nothing has landed for a while, is worth hearing.
+await env.DB.prepare("DELETE FROM meta WHERE key IN ('runs','health','health_said')").bind().run();
+await beat(45);
 await worker.scheduled({}, env, { waitUntil: () => {} });
 check("a broken one tells his phone", pushes.length > quiet);
 const told = await (await get("/api/push?latest=1", as)).json();
@@ -471,7 +480,7 @@ quiet = pushes.length;
 await worker.scheduled({}, env, { waitUntil: () => {} });
 check("it does not say it twice", pushes.length === quiet);
 
-await env.DB.prepare("DELETE FROM meta WHERE key = 'runs'").bind().run();
+await env.DB.prepare("DELETE FROM meta WHERE key IN ('runs','health','health_said')").bind().run();
 asGitHub([{ conclusion: "success", created_at: iso(0.2), html_url: "https://x" }]);
 await beat(60 * 5);   // five hours without a sweep
 await worker.scheduled({}, env, { waitUntil: () => {} });

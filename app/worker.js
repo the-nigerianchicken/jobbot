@@ -158,7 +158,12 @@ async function health(env) {
   const runs = await askGitHub(env).catch(() => []);
   const broken = runs.find((r) => r.kind === "broken");
   const since = beat ? Date.now() - new Date(beat.value).getTime() : null;
-  const state = broken ? "failed" : since !== null && since > 2 * 3600e3 ? "stale" : "ok";
+  // A sweep does its work before it books the next one, so a run can go red
+  // with everything it found already recorded. Only say a check failed when the
+  // heartbeat has stopped too - otherwise a red run is noise, and telling him
+  // nothing is coming in while it is arriving is worse than saying nothing.
+  const quiet = since === null || since > 20 * 60e3;
+  const state = broken && quiet ? "failed" : since !== null && since > 2 * 3600e3 ? "stale" : "ok";
   const said = state === "failed" ? "jobbot's last check failed. Nothing new is coming in."
     : state === "stale" ? "jobbot has not checked the boards in over two hours."
     : "";

@@ -171,4 +171,15 @@ jobs:
           if [ -f app-out-of-writes ]; then
             echo "the app is out of writes for today - standing down until it resets"; exit 0
           fi
-          gh workflow run watch.yml -f targets=true && echo "next sweep booked"
+          # GitHub's dispatch API answers 500 now and then when the workflow is
+          # already busy. Booking is a convenience, not the work: the worker's
+          # clock and the hourly schedule both restart the chain, so a refusal
+          # here is not worth a failed run and an email (2026-09-26).
+          for try in 1 2; do
+            if gh workflow run watch.yml -f targets=true; then
+              echo "next sweep booked"; exit 0
+            fi
+            sleep 3
+          done
+          echo "GitHub would not take the booking - the clock will pick it up"
+          exit 0
