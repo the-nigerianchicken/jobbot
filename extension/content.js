@@ -61,13 +61,33 @@
 
   /* --------------------------------------------------------- filling in --- */
 
+  // What a field will actually take. An input with a type validates what is put
+  // in it, and writing "Mississauga, Ontario, Canada" into a number or a date
+  // leaves the field invalid and the form refusing to send - which is what an
+  // Ashby application did on 2026-09-26. If it does not fit, leave it alone.
+  const FREE = new Set(["", "text", "search"]);
+  function accepts(el, value) {
+    if (el.tagName === "TEXTAREA") return true;
+    const t = (el.type || "text").toLowerCase();
+    if (FREE.has(t)) return true;
+    if (t === "email") return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value.trim());
+    if (t === "url") return /^https?:\/\/\S+$/i.test(value.trim());
+    if (t === "tel") return /^[0-9+().\-\s]{6,}$/.test(value.trim());
+    if (t === "number") return /^-?\d+(\.\d+)?$/.test(value.trim());
+    if (t === "date") return /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
+    if (t === "month") return /^\d{4}-\d{2}$/.test(value.trim());
+    return false;                 // time, week, colour, range, and anything new
+  }
+
   // React and friends listen for their own setter, not for a changed value.
   function put(el, value) {
+    if (!accepts(el, value)) return false;
     const proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     const set = Object.getOwnPropertyDescriptor(proto, "value");
     if (set && set.set) set.set.call(el, value); else el.value = value;
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
   }
 
   function labelOf(el) {
@@ -117,6 +137,127 @@
     let hits = 0;
     for (const w of one) if (two.includes(w)) hits += 1;
     return hits / one.size;
+  }
+
+  // labelOf throws everything into one string so matching has the best chance -
+  // including the field's name and id, which are not words. This is the part a
+  // person would read, for saying which questions were left.
+  function humanLabel(el) {
+    const bits = [];
+    if (el.id) {
+      const l = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+      if (l) bits.push(l.textContent);
+    }
+    const wrap = el.closest("label");
+    if (wrap && !bits.length) bits.push(wrap.textContent);
+    if (!bits.length) bits.push(el.getAttribute("aria-label") || el.getAttribute("placeholder") || "");
+    const said = bits.join(" ").replace(/\s+/g, " ").replace(/\s*\*\s*$/, "").trim();
+    return said || labelOf(el);
+  }
+
+  // How close an answer is to an option's text, for picking one of a list.
+  // "Yes" must not win "No, I do not require sponsorship", so an exact match
+  // beats a contained one, and a contained one beats sharing words.
+  function optionScore(answer, text) {
+    const a = bare(answer), t = bare(text);
+    if (!a || !t) return 0;
+    if (a === t) return 1;
+    if (t === "yes" || t === "no") return 0;          // never guess a yes or a no
+    if (t.includes(a) || a.includes(t)) return 0.8;
+    const words = a.split(" ").filter((w) => w.length > 3);
+    if (!words.length) return 0;
+    return 0.6 * (words.filter((w) => t.includes(w)).length / words.length);
+  }
+
+  function bestOption(answer, texts) {
+    let at = -1, best = 0;
+    texts.forEach((t, i) => { const sc = optionScore(answer, t); if (sc > best) { best = sc; at = i; } });
+    return best >= 0.6 ? at : -1;
+  }
+
+  // Radios and checkboxes are often styled, with the real input hidden behind a
+  // label, so being invisible does not mean being absent.
+  const seen = (el) => !!(el.offsetParent || el.getClientRects().length ||
+                          el.closest("label, fieldset, [role=group], [role=radiogroup]"));
+
+  // The question a group of radios or checkboxes is asking. Their own labels are
+  // the answers, so the question is whatever text the group sits under.
+  function groupLabel(els) {
+    let node = els[0];
+    const own = new Set(els.map((e) => bare(labelOf(e))));
+    for (let up = 0; up < 6 && node; up++) {
+      node = node.parentElement;
+      if (!node) break;
+      const head = node.querySelector(":scope > legend, :scope > label, :scope > .label, :scope > h2, :scope > h3, :scope > p");
+      if (head) {
+        const text = bare(head.textContent);
+        if (text && text.length > 3 && !own.has(text)) return text;
+      }
+    }
+    return "";
+  }
+
+  // One of a set of radios, or a checkbox, chosen by what the answer says.
+  function pickOne(els, answer) {
+    const at = bestOption(answer, els.map((e) => labelOf(e) || e.value || ""));
+    if (at < 0) return false;
+    const el = els[at];
+    if (el.checked) return false;
+    el.click();                              // a click is what the form listens for
+    if (!el.checked) {
+      el.checked = true;
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    return !!el.checked;
+  }
+
+  const rest = (ms) => new Promise((go) => setTimeout(go, ms));
+
+  // Click the way a person does. react-select, Downshift and Radix all open on
+  // mousedown and never see a bare .click(), so most of the dropdowns on these
+  // forms would not even open (2026-09-26).
+  function press(el) {
+    const how = { bubbles: true, cancelable: true, view: window, button: 0 };
+    el.dispatchEvent(new PointerEvent("pointerdown", how));
+    el.dispatchEvent(new MouseEvent("mousedown", how));
+    if (el.focus) el.focus();
+    el.dispatchEvent(new PointerEvent("pointerup", how));
+    el.dispatchEvent(new MouseEvent("mouseup", how));
+    el.dispatchEvent(new MouseEvent("click", how));
+  }
+
+  // Options are often put at the end of the body rather than inside the control,
+  // so look where it points first and then anywhere on the page.
+  function optionsFor(el) {
+    const owns = el.getAttribute("aria-controls") || el.getAttribute("aria-owns");
+    const box = owns && document.getElementById(owns);
+    const here = box ? [...box.querySelectorAll('[role="option"]')] : [];
+    const all = here.length ? here : [...document.querySelectorAll('[role="option"]')];
+    return all.filter((o) => o.getClientRects().length);
+  }
+
+  // A dropdown that is not a <select>: a control that opens a list of options.
+  // Greenhouse, Ashby and Workday all build their own, and none of them were
+  // being filled at all.
+  async function pickFromListbox(el, answer) {
+    let options = [];
+    for (let go = 0; go < 2 && !options.length; go++) {
+      press(el);
+      for (let tries = 0; tries < 10 && !options.length; tries++) {
+        await rest(40);
+        options = optionsFor(el);
+      }
+    }
+    if (!options.length) { if (el.blur) el.blur(); return false; }
+    const at = bestOption(answer, options.map((o) => o.textContent || ""));
+    if (at < 0) {
+      document.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      if (el.blur) el.blur();
+      return false;
+    }
+    press(options[at]);
+    await rest(60);
+    return true;
   }
 
   // Where a resume goes on this form. Prefer a picker that says what it wants;
@@ -175,40 +316,90 @@
     setTimeout(() => URL.revokeObjectURL(url), 30000);
   }
 
-  function fill(me, questions) {
+  // The answer for a question: jobbot's tailored one first, then his own facts.
+  function answerFor(label, me, questions) {
+    let best = 0, value = "";
+    for (const q of questions) {
+      const score = sameQuestion(q.label, label);
+      if (q.answer && score > best && score >= 0.6) { best = score; value = q.answer; }
+    }
+    if (value) return value;
+    if (!me) return "";
+    for (const [pattern, pick] of ME) if (pattern.test(label)) return pick(me) || "";
+    return "";
+  }
+
+  // Everything jobbot had no answer for, so the panel can say what it missed.
+  let unanswered = [];
+
+  async function fill(me, questions) {
+    unanswered = [];
+    let done = 0;
+    const claimed = new Set();
+
+    // Radios and checkboxes first. They are whole questions - their own labels
+    // are the answers - so they must not be read as fields of their own. They
+    // were skipped entirely until now, which is every yes/no on the form.
+    const groups = new Map();
+    for (const el of document.querySelectorAll('input[type="radio"], input[type="checkbox"]')) {
+      if (el.disabled || !seen(el)) continue;
+      const key = el.type === "radio" && el.name ? "r:" + el.name : "c:" + (el.name || labelOf(el));
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(el);
+    }
+    for (const els of groups.values()) {
+      els.forEach((e) => claimed.add(e));
+      if (els.some((e) => e.checked)) continue;         // he has already answered
+      const label = groupLabel(els) || (els.length === 1 ? labelOf(els[0]) : "");
+      if (!label) continue;
+      const shown = groupLabel(els) || humanLabel(els[0]);
+      const options = els.map((e) => humanLabel(e) || e.value);
+      const value = answerFor(label, me, questions);
+      if (!value) { unanswered.push({ label: shown, options }); continue; }
+      if (pickOne(els, value)) done += 1;
+      else unanswered.push({ label: shown, options, tried: value });
+    }
+
+    // Everything that takes typing or is a real <select>.
     const fields = [...document.querySelectorAll("input, textarea, select")].filter((el) => {
-      if (el.disabled || el.readOnly || el.offsetParent === null) return false;
-      if (["hidden", "file", "password", "submit", "button", "checkbox", "radio"].includes(el.type)) return false;
+      if (el.disabled || el.readOnly || claimed.has(el) || !seen(el)) return false;
+      if (["hidden", "file", "password", "submit", "button", "image", "reset"].includes(el.type)) return false;
       return !el.value;                       // never write over something he typed
     });
-    let done = 0;
     for (const el of fields) {
       const label = labelOf(el);
       if (!label) continue;
-      let value = "";
-      // What jobbot wrote for this job comes first: it is the tailored answer.
-      let best = 0;
-      for (const q of questions) {
-        const score = sameQuestion(q.label, label);
-        if (q.answer && score > best && score >= 0.6) { best = score; value = q.answer; }
-      }
-      if (!value && me) {
-        for (const [pattern, pick] of ME) {
-          if (pattern.test(label)) { value = pick(me) || ""; break; }
-        }
-      }
+      const value = answerFor(label, me, questions);
       if (!value) continue;
       if (el.tagName === "SELECT") {
-        const want = bare(value);
-        const hit = [...el.options].find((o) => bare(o.textContent) === want) ||
-                    [...el.options].find((o) => bare(o.textContent).includes(want) && want);
-        if (!hit) continue;
-        el.value = hit.value;
+        const texts = [...el.options].map((o) => o.textContent || "");
+        const at = bestOption(value, texts);
+        if (at < 0 || !bare(texts[at])) {     // the first option is usually "Select..."
+          unanswered.push({ label: humanLabel(el), options: texts.filter((t) => bare(t)), tried: value });
+          continue;
+        }
+        el.value = el.options[at].value;
         el.dispatchEvent(new Event("change", { bubbles: true }));
+        done += 1;
+      } else if (put(el, value)) {
+        done += 1;
       } else {
-        put(el, value);
+        unanswered.push({ label: humanLabel(el), tried: value, why: "the field would not take it" });
       }
-      done += 1;
+    }
+
+    // And the dropdowns that are not <select>.
+    const combos = [...document.querySelectorAll('[role="combobox"], [aria-haspopup="listbox"]')]
+      .filter((el) => !claimed.has(el) && seen(el) && !el.disabled);
+    for (const el of combos) {
+      const shown = bare(el.value || el.textContent || "");
+      if (shown && !/^(select|choose|pick|search|start typing)\b/.test(shown)) continue;  // answered
+      const label = labelOf(el);
+      if (!label) continue;
+      const value = answerFor(label, me, questions);
+      if (!value) { unanswered.push({ label: humanLabel(el), why: "a dropdown jobbot has no answer for" }); continue; }
+      if (await pickFromListbox(el, value)) done += 1;
+      else unanswered.push({ label: humanLabel(el), tried: value, why: "none of its options matched" });
     }
     return done;
   }
@@ -331,7 +522,7 @@
     }
     if (go === "fill") {
       if (!me) return say("Set jobbot up first", "bad");
-      const n = fill(me, questions);
+      const n = await fill(me, questions);
       // The resume is the one field that is always asked for and can never be
       // typed, so filling a form without it leaves the tedious part undone.
       const input = j && j.pdf && resumeInput();
@@ -342,9 +533,15 @@
         busy = false;
         if (!got.error && attach(input, got.file)) withResume = ", and your resume";
       }
+      // Say what it could not do as well. A form half filled without a word
+      // about the rest is how you send an application with a blank question.
+      const left = unanswered.length
+        ? " " + unanswered.length + (unanswered.length === 1 ? " question is" : " questions are") + " still yours: "
+          + unanswered.slice(0, 3).map((u) => u.label.slice(0, 40)).join("; ")
+        : "";
       say(n || withResume
-        ? "Filled " + n + (n === 1 ? " field" : " fields") + withResume + ". Read it before you send."
-        : "Nothing on this form matched anything jobbot knows about you");
+        ? "Filled " + n + (n === 1 ? " field" : " fields") + withResume + "." + (left || " Read it before you send.")
+        : "Nothing here matched what jobbot knows about you." + left);
       return;
     }
     if (go === "copy-all") {
