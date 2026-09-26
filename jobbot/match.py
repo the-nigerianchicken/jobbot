@@ -102,6 +102,51 @@ def screened(refresh=False):
     return _SCREENED
 
 
+# When each term ends, and when it starts, as (month, year-offset). A term is
+# only ruled out once it is certainly no use: Spring is given Summer's end
+# because some employers use it for a May start, so the doubt goes his way.
+TERM_ENDS = {"winter": 4, "spring": 8, "summer": 8, "fall": 12}
+TERM_STARTS = {"winter": 1, "spring": 1, "summer": 5, "fall": 9}
+
+
+def dead_terms(title, desc, crit, today=None):
+    """The reason none of a posting's terms can be taken, or None.
+
+    The literal `terms.exclude_any` list only catches a posting that spells the
+    term out. Most do not: "start date January 2026" reads as Winter 2026 on the
+    card while the words "winter 2026" appear nowhere, so 26 postings for a term
+    that ended in April sat in New on 2026-09-26. This reads the same term the
+    card shows and asks whether it is over, or begins after he has graduated.
+    """
+    from .seed_store import term_of
+    found = term_of(title, desc)
+    if not found:
+        return None                                   # unknown: his to judge
+    today = today or __import__("datetime").date.today()
+    now = today.year * 12 + today.month
+    graduates = (crit.get("eligibility") or {}).get("graduation_window") or []
+    last = graduates[-1] if graduates else None
+    gone = graduates and last and len(str(last)) >= 7
+    end = None
+    if gone:
+        y, m = int(str(last)[:4]), int(str(last)[5:7])
+        end = y * 12 + m
+
+    reasons = []
+    for name in found.split(" / "):
+        season, _, year = name.lower().partition(" ")
+        if season not in TERM_ENDS or not year.isdigit():
+            return None                               # cannot tell: keep it
+        year = int(year)
+        if year * 12 + TERM_ENDS[season] < now:
+            reasons.append(f"{name} is over")
+        elif end and year * 12 + TERM_STARTS[season] > end:
+            reasons.append(f"{name} starts after he graduates")
+        else:
+            return None                               # one he can take is enough
+    return reasons[0] if reasons else None
+
+
 def classify(posting, crit, targets=None):
     """Return (Match | None, drop_reason)."""
     targets = {t.lower() for t in (targets or TARGETS_DEFAULT)}
@@ -135,6 +180,9 @@ def classify(posting, crit, targets=None):
 
     if _any_in_loose(crit["terms"]["exclude_any"], blob):
         return None, f"wrong term ({_any_in_loose(crit['terms']['exclude_any'], blob)[0]})"
+    dead = dead_terms(posting.title, posting.description or "", crit)
+    if dead:
+        return None, f"wrong term ({dead})"
     if not _any_in_loose(crit["terms"]["require_any"], blob):
         return None, "no matching term"
 

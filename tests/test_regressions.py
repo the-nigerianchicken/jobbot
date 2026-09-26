@@ -135,6 +135,29 @@ if m is None or m.tier != 1:
     sys.exit(1)
 print("amazon source: SDE internship kept at tier 1")
 
+# A term he cannot take, spelled out only as a date (2026-09-26). 26 postings
+# for Winter 2026 - a term that ended in April - sat in New because the words
+# "winter 2026" appeared nowhere; only "start date: January 2026" did, which is
+# what the card was already showing as the term.
+from datetime import date
+TERMS = [
+    ("Start date: January 2026", "Winter 2026 is over"),
+    ("Summer 2026 internship", "Summer 2026 is over"),
+    ("starts May 2028", "Summer 2028 starts after he graduates"),
+    ("Summer 2027 internship", None),
+    ("Winter 2027 co-op", None),
+    ("Fall 2027 term", None),                       # he graduates that December
+    ("Fall 2026 start", None),                      # not over yet, so his to judge
+    ("Winter 2026 or Summer 2027", None),           # one he can take is enough
+    ("no dates here at all", None),                 # unknown is never a drop
+]
+for desc, want in TERMS:
+    got = match.dead_terms("Software Engineer Intern", desc, crit, today=date(2026, 9, 26))
+    if got != want:
+        print(f"TERM {desc!r}: wanted {want!r}, got {got!r}")
+        fails += 1
+print(f"dead terms: {len(TERMS)} cases")
+
 print()
 print(f"{len(SHOULD_DROP)} should-drop, {len(SHOULD_KEEP)} should-keep, {fails} failure(s)")
 sys.exit(1 if fails else 0)
