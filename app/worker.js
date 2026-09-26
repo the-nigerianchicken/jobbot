@@ -120,7 +120,14 @@ export default {
 // checking often is hammering other people's boards - three minutes is as fast
 // as that stays polite, and it is five times what GitHub was actually giving
 // him.
-const FAST = 3, SLOW = 25;
+// How often a sweep is due, in minutes, awake and asleep.
+//
+// Every sweep re-sends every posting jobbot knows, so the cadence multiplies the
+// cost of all of it. At three minutes that was a quarter of a million writes a
+// day (2026-09-25) and then the whole day's row reads by the evening
+// (2026-09-26). Ten minutes is still far better than GitHub's own schedule
+// managed, and leaves the free tier a wide margin. "Check now" is unaffected.
+const FAST = 10, SLOW = 30;
 
 function dueForSweep(mins, hour) {
   if (!(mins >= 0)) return true;                     // never checked: check now
@@ -957,21 +964,28 @@ async function ingest(request, env) {
     removed = gone.length;
   }
   if (Array.isArray(b.filtered)) {
+    // Changing a rule has to change the board, not just what arrives next. A
+    // posting he has never touched leaves when it stops matching, and the reason
+    // goes with it so he can put it back from Filters. Anything he has acted on
+    // - asked for, written, applied to, archived - stays where it is.
+    //
+    // Only for reasons about whether the job is his to apply for: a posting is
+    // also turned away for being old, and age is not a reason to clear a card he
+    // can still act on.
+    //
+    // In one statement. Asking this per posting was several hundred queries a
+    // sweep, every two minutes, and on 2026-09-26 it spent the day's allowance
+    // of row reads by the evening - which stops the board just as surely as
+    // running out of writes did.
+    const leaving = b.filtered.filter((f) => f && f.uid && ELIGIBILITY.test(f.reason || ""))
+                              .map((f) => String(f.uid));
+    for (let i = 0; i < leaving.length; i += 100) {
+      const some = leaving.slice(i, i + 100);
+      await run(env, `DELETE FROM jobs WHERE state = 'new' AND folder IS NULL AND issue IS NULL
+                        AND note IS NULL AND uid IN (${some.map((_, n) => `?${n + 1}`).join(",")})`, ...some);
+    }
     for (const f of b.filtered) {
       if (!f || !f.uid || !f.company) continue;
-      // Changing a rule has to change the board, not just what arrives next.
-      // A posting he has never touched leaves when it stops matching, and the
-      // reason goes with it so he can put it back from Filters. Anything he has
-      // acted on - asked for, written, applied to, archived - stays where it is:
-      // taking a posting out from under him would be worse than a stale card.
-      //
-      // Only for reasons about whether the job is his to apply for. A posting is
-      // also turned away for being old, and age is not a reason to clear a card
-      // he can still act on: every sweep would have emptied the board down to
-      // the last day's postings.
-      if (ELIGIBILITY.test(f.reason || ""))
-        await run(env, `DELETE FROM jobs WHERE uid = ?1 AND state = 'new'
-                          AND folder IS NULL AND issue IS NULL AND note IS NULL`, f.uid);
       await run(env, `INSERT INTO filtered (uid, company, title, location, url, apply_url, posted_at, reason, data, seen_at)
                       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10 WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE uid = ?1)
                       ON CONFLICT(uid) DO UPDATE SET reason = excluded.reason WHERE filtered.reason IS NOT excluded.reason`,
