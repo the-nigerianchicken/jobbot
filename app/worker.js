@@ -887,6 +887,11 @@ const JOB_COLS = ["uid", "company", "title", "tier", "term", "location", "source
 // He has just tapped something; a run that started before that must not undo it.
 const HIS = new Set(["working", "done", "skipped"]);
 
+// Reasons that say a posting is not his to apply for, as opposed to ones about
+// how old or noisy it is. Only these take a card off the board.
+const ELIGIBILITY = /^(wrong term|title excluded|title not a wanted role|location excluded|not eligible|seniority excluded|no matching term)/;
+
+
 async function ingest(request, env) {
   const b = await request.json().catch(() => ({}));
   const rows = Array.isArray(b.jobs) ? b.jobs : [];
@@ -947,6 +952,19 @@ async function ingest(request, env) {
   if (Array.isArray(b.filtered)) {
     for (const f of b.filtered) {
       if (!f || !f.uid || !f.company) continue;
+      // Changing a rule has to change the board, not just what arrives next.
+      // A posting he has never touched leaves when it stops matching, and the
+      // reason goes with it so he can put it back from Filters. Anything he has
+      // acted on - asked for, written, applied to, archived - stays where it is:
+      // taking a posting out from under him would be worse than a stale card.
+      //
+      // Only for reasons about whether the job is his to apply for. A posting is
+      // also turned away for being old, and age is not a reason to clear a card
+      // he can still act on: every sweep would have emptied the board down to
+      // the last day's postings.
+      if (ELIGIBILITY.test(f.reason || ""))
+        await run(env, `DELETE FROM jobs WHERE uid = ?1 AND state = 'new'
+                          AND folder IS NULL AND issue IS NULL AND note IS NULL`, f.uid);
       await run(env, `INSERT INTO filtered (uid, company, title, location, url, apply_url, posted_at, reason, data, seen_at)
                       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10 WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE uid = ?1)
                       ON CONFLICT(uid) DO UPDATE SET reason = excluded.reason WHERE filtered.reason IS NOT excluded.reason`,

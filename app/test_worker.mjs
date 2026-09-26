@@ -215,6 +215,8 @@ check("a follow needs a name", (await body("/api/command", "POST", { command: "f
 await body("/api/ingest", "POST", { jobs: [
   { uid: "ghost", company: "_check", title: "Intern", state: "building", seen_at: iso(0.1) },
   { uid: "kept", company: "real co", title: "Intern", state: "new", seen_at: iso(0.1) },
+  { uid: "mine", company: "his co", title: "Intern", state: "ready", note: "Ready to send",
+    folder: "resumes/His Co/Intern", seen_at: iso(0.1) },
 ] }, robot);
 // jobbot reports everything it knows except the ghost.
 const everything = (await env.DB.prepare("SELECT uid FROM jobs").bind().all()).results.map((r) => r.uid);
@@ -233,25 +235,48 @@ await body("/api/ingest", "POST", { filtered: [
     posted_at: iso(0.2), reason: "location not in allowed geography (nyc)", description: "The whole JD", source: "community" },
   { uid: "f2", company: "old co", title: "Intern", posted_at: iso(24 * 9), reason: "posted too long ago (over 24h)" },
   { uid: "kept", company: "real co", title: "Intern", reason: "title not a wanted role" },
+  { uid: "mine", company: "his co", title: "Intern", reason: "title not a wanted role" },
 ] }, robot);
 feed = await (await get("/api/jobs", as)).json();
 let held = (await (await get("/api/filtered", as)).json()).filtered;
 check("filtered postings are listed with a reason he can read",
-  held.length === 1 && held[0].uid === "f1" && held[0].why === "Outside the US and Canada", JSON.stringify(held));
+  held.some((f) => f.uid === "f1" && f.why === "Outside the US and Canada"), JSON.stringify(held));
 await body("/api/ingest", "POST", { filtered: [{ uid: "f3", company: "x", title: "Data Science Intern",
   posted_at: iso(1), reason: "title excluded (data scien)" }] }, robot);
 held = (await (await get("/api/filtered", as)).json()).filtered;
 check("an excluded word is shown whole", held.some((f) => f.uid === "f3" && f.why === "A role type you excluded"
   && f.detail.includes("Data Science")), JSON.stringify(held));
 await env.DB.prepare("DELETE FROM filtered WHERE uid = 'f3'").bind().run();
-check("the feed counts them", feed.filtered === 1, String(feed.filtered));
 check("a posting older than a week is not kept", !held.some((f) => f.uid === "f2"));
-check("a job already in the feed is never listed as filtered", !held.some((f) => f.uid === "kept"));
+
+// Changing a rule has to change the board, not only what arrives next.
+feed = await (await get("/api/jobs", as)).json();
+check("a posting that stops matching leaves the board",
+  !feed.jobs.some((j) => j.uid === "kept") && held.some((f) => f.uid === "kept"));
+check("and the reason goes with it, so he can put it back",
+  (held.find((f) => f.uid === "kept") || {}).why === "Role not on your list", JSON.stringify(held));
+// But one he has already acted on is his, not the rule's.
+check("one he has asked for stays where it is",
+  feed.jobs.some((j) => j.uid === "mine") && !held.some((f) => f.uid === "mine"));
+
+// And age is not a rule about him. Postings are turned away for being over a
+// day old on every sweep; clearing the board for that would leave him only ever
+// the last day's, and nothing he saw yesterday and meant to come back to.
+await body("/api/ingest", "POST", { jobs: [
+  { uid: "aged", company: "co", title: "Software Engineer Intern", state: "new", seen_at: iso(3) },
+] }, robot);
+await body("/api/ingest", "POST", { filtered: [
+  { uid: "aged", company: "co", title: "Software Engineer Intern", posted_at: iso(3),
+    reason: "posted too long ago (over 24h)" },
+] }, robot);
+check("one turned away only for its age stays on the board",
+  (await (await get("/api/jobs", as)).json()).jobs.some((j) => j.uid === "aged"));
 const brought = await (await body("/api/command", "POST", { command: "restore", uid: "f1" }, as)).json();
 feed = await (await get("/api/jobs", as)).json();
 const restored = feed.jobs.find((j) => j.uid === "f1");
 check("bringing one back puts it in the feed as new", brought.ok && restored && restored.state === "new" && restored.jd === "The whole JD");
-check("and takes it off the filtered list", (await (await get("/api/filtered", as)).json()).filtered.length === 0);
+check("and takes it off the filtered list",
+  !(await (await get("/api/filtered", as)).json()).filtered.some((f) => f.uid === "f1"));
 check("jobbot is told, with the whole posting",
   (await (await get("/api/events", robot)).json()).events.some((e) => e.kind === "restore" && e.detail.posting.description === "The whole JD"));
 const known = (await env.DB.prepare("SELECT uid FROM jobs").bind().all()).results.map((r) => r.uid).filter((u) => u !== "f1");
