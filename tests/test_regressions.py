@@ -162,6 +162,15 @@ TERMS = [
     ("Winter 2026 or Summer 2027", None),           # one he can take is enough
     ("no dates here at all", None),                 # unknown is never a drop
 ]
+# A queue row is stored without its description, so the only place the term
+# survives is the `terms` field the card already reads (2026-09-26: 29 Winter
+# 2026 cards stayed on the board because the check never looked there).
+stored = match.dead_terms("Software Engineer Intern", "", crit,
+                          today=date(2026, 9, 26), said="Winter 2026")
+if stored != "Winter 2026 is over":
+    print(f"TERM from a stored row: got {stored!r}")
+    fails += 1
+
 for desc, want in TERMS:
     got = match.dead_terms("Software Engineer Intern", desc, crit, today=date(2026, 9, 26))
     if got != want:

@@ -109,7 +109,7 @@ TERM_ENDS = {"winter": 4, "spring": 8, "summer": 8, "fall": 12}
 TERM_STARTS = {"winter": 1, "spring": 1, "summer": 5, "fall": 9}
 
 
-def dead_terms(title, desc, crit, today=None):
+def dead_terms(title, desc, crit, today=None, said=""):
     """The reason none of a posting's terms can be taken, or None.
 
     The literal `terms.exclude_any` list only catches a posting that spells the
@@ -119,7 +119,11 @@ def dead_terms(title, desc, crit, today=None):
     card shows and asks whether it is over, or begins after he has graduated.
     """
     from .seed_store import term_of
-    found = term_of(title, desc)
+    # `said` is the term a queue row already carries. Queue rows are stored
+    # without their description, so reading the posting alone found nothing and
+    # 29 Winter 2026 cards stayed on the board while the card itself was showing
+    # the term (2026-09-26). Ask in the same order the card does.
+    found = term_of(said, title, desc)
     if not found:
         return None                                   # unknown: his to judge
     today = today or __import__("datetime").date.today()

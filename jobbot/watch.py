@@ -154,6 +154,11 @@ def recheck_queue(crit, targets):
         except Exception:
             keep[uid] = row                     # unreadable row: not ours to drop
             continue
+        dead = match.dead_terms(posting.title, posting.description or "", crit,
+                                said=" / ".join(row.get("terms") or []))
+        if dead:
+            out.append((posting, f"wrong term ({dead})"))
+            continue
         m, why = match.classify(posting, crit, targets)
         if m is not None or not why or why.startswith("posted too long ago"):
             keep[uid] = row                     # age is handled elsewhere, by date
