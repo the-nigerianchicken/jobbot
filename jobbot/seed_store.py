@@ -21,7 +21,7 @@ from pathlib import Path
 from . import tailor
 
 ROOT = tailor.ROOT
-OUT = ROOT / "app" / "seed.sql"
+OUT = tailor.CODE_ROOT / "app" / "seed.sql"
 TRACKER = Path(r"C:\Users\thema\OneDrive\Desktop\Resumes\Applications 2026\Tracker.xlsx")
 SHEET = "Internships Applied"
 NOW = datetime.now(timezone.utc).isoformat(timespec="seconds")

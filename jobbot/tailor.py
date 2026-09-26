@@ -60,10 +60,14 @@ from urllib.parse import quote
 
 from . import match, sources, store, verify, watch
 
-ROOT = Path(__file__).resolve().parent.parent
 from . import paths
+# jobbot's own source and samples.
+CODE_ROOT = Path(__file__).resolve().parent.parent
+# His things: resumes, state, and everything a ledger entry names a path to.
+# The same checkout gitsync commits, so a resume written here is a resume kept.
+ROOT = paths.PRIVATE
 PIPE = paths.PIPELINE
-OUT = Path(os.environ.get("JOBBOT_OUT") or ROOT / "resumes")
+OUT = paths.OUT
 DATA = Path(store.DATA)
 PROFILE_JSON = paths.DATA / "profile.json"
 REPO = os.environ.get("GITHUB_REPOSITORY") or os.environ.get("JOBBOT_REPO", "")
@@ -482,7 +486,7 @@ def prepare(t):
 
 
 # A resume he wrote and sent, kept with his things rather than with the code.
-SAMPLE = next((p for p in (PIPE / "style_sample.json", ROOT / "samples" / "resume_tailor_duolingo.json")
+SAMPLE = next((p for p in (PIPE / "style_sample.json", CODE_ROOT / "samples" / "resume_tailor_duolingo.json")
                if p.exists()), PIPE / "style_sample.json")
 
 

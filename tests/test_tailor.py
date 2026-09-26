@@ -163,3 +163,38 @@ print()
 if fails:
     print(f"{len(fails)} failure(s)"); sys.exit(1)
 print("tailor suite OK")
+
+
+# 2026-09-25: a resume was written, the app said it was ready, and the file was
+# thrown away with the runner. tailor wrote resumes next to its own source in
+# the code checkout; gitsync commits his private one, so nothing ever kept them.
+# Every path a ledger entry names has to resolve against the tree that is kept.
+def test_resumes_are_written_where_they_are_kept():
+    import importlib, os
+    from jobbot import paths as _paths
+    # The suite points the individual paths at fixtures; this asks the question
+    # the runners ask, where only JOBBOT_PRIVATE is set.
+    overrides = ("JOBBOT_PRIVATE", "JOBBOT_OUT", "JOBBOT_DATA", "JOBBOT_PIPELINE",
+                 "JOBBOT_CRITERIA", "JOBBOT_ANSWERS", "JOBBOT_TARGETS")
+    was = {k: os.environ.pop(k, None) for k in overrides}
+    os.environ["JOBBOT_PRIVATE"] = os.path.join(os.path.dirname(__file__), "_elsewhere")
+    try:
+        importlib.reload(_paths)
+        t = importlib.reload(importlib.import_module("jobbot.tailor"))
+        g = importlib.reload(importlib.import_module("jobbot.gitsync"))
+        assert str(t.OUT).startswith(str(g.ROOT)), f"{t.OUT} is not inside {g.ROOT}"
+        assert str(t.ROOT) == str(g.ROOT), f"{t.ROOT} != {g.ROOT}"
+        # jobbot's own files stay with jobbot's own source.
+        assert "_elsewhere" not in str(t.SAMPLE), t.SAMPLE
+    finally:
+        os.environ.pop("JOBBOT_PRIVATE", None)
+        for k, v in was.items():
+            if v is not None:
+                os.environ[k] = v
+        importlib.reload(_paths)
+        importlib.reload(importlib.import_module("jobbot.tailor"))
+        importlib.reload(importlib.import_module("jobbot.gitsync"))
+
+
+test_resumes_are_written_where_they_are_kept()
+print("resumes are written into the tree that is committed")
