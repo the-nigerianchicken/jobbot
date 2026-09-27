@@ -69,8 +69,55 @@ check("epoch seconds read as this year", sources._ts(1790000000).year == 2026, s
 check("epoch milliseconds still read as this year", sources._ts(1790000000000).year == 2026,
       str(sources._ts(1790000000000)))
 
+# --- Netflix: its own site, read through its search API ----------------------
+canned = {"count": 2, "positions": [
+    {"id": 790317917022, "name": "Machine Learning/AI Infrastructure Engineering Intern (AI Platform)",
+     "locations": ["Los Gatos,California,United States of America"], "t_create": 1787097600,
+     "canonicalPositionUrl": "https://explore.jobs.netflix.net/careers/job/790317917022",
+     "job_description": "<p>Build the platform.</p><ul><li>Python</li><li>Spark</li></ul>"},
+    {"id": 790317916733, "name": "Machine Learning/AI Scientist PhD Intern, Winter 2027",
+     "location": "Los Gatos,California,United States of America", "t_create": 1787097600,
+     "job_description": "<p>Research.</p>"}]}
+asked = []
+was_page = direct._json_page
+direct._json_page = lambda url, params=None: (asked.append(params), canned)[1]
+try:
+    nf = direct.netflix()
+finally:
+    direct._json_page = was_page
+check("netflix reads its own board", len(nf) == 2 and all(p.company == "Netflix" for p in nf), str(len(nf)))
+check("a posting two searches both find is listed once", len({p.raw_id for p in nf}) == len(nf))
+check("it stops at the last page instead of asking five times", len(asked) == 2, str(len(asked)))
+ml = next((p for p in nf if p.raw_id == "790317917022"), None)
+check("the date is the one Netflix published",
+      ml is not None and ml.posted_at and (ml.posted_at.year, ml.posted_at.month) == (2026, 8), str(ml and ml.posted_at))
+check("the description arrives without its markup",
+      ml is not None and "Build the platform" in ml.description and "<p>" not in ml.description)
+check("it links to the posting itself", ml is not None and ml.url.endswith("/790317917022"))
+phd = next((p for p in nf if p.raw_id == "790317916733"), None)
+check("a posting with one location and no link still gets both",
+      phd is not None and phd.location.startswith("Los Gatos") and phd.url.endswith("/790317916733"))
+
+# --- never tried is not never worked ------------------------------------------
+from jobbot import store as _store                                # noqa: E402
+def _stats(ok, fails):
+    return {"ok_runs": ok, "fail_runs": fails, "consecutive_failures": 0, "postings_seen": 0,
+            "matches_ever": 0, "last_ok": "2026-09-01T00:00:00+00:00" if ok else None,
+            "last_error": None, "enabled": True}
+gone = {"stats": {"workday:gone": _stats(0, 99), "workday:flaky": _stats(40, 99)}}
+miss = {"ok": False, "count": 0, "error": "HTTPError: 422 Client Error: Unprocessable Entity"}
+_store.update_health(gone, {"workday:gone": miss, "workday:flaky": miss}, {})
+check("a board that never answered in a hundred tries is switched off",
+      gone["stats"]["workday:gone"]["enabled"] is False)
+check("one that has answered before is only having a bad day",
+      gone["stats"]["workday:flaky"]["enabled"] is True)
+board = {"source": "workday", "org": "x"}
+check("a board not yet tried is tried eagerly", _store.is_hot(board, {"workday:x": _stats(0, 0)}))
+check("one that has failed thirty times is not new any more",
+      not _store.is_hot(board, {"workday:x": _stats(0, 30)}))
+
 # --- every board is reachable through the registry ---------------------------
-for name in ("google", "microsoft", "apple", "uber", "shopify"):
+for name in ("google", "microsoft", "apple", "uber", "shopify", "netflix"):
     check(f"{name} is a source the watcher knows", name in sources.FETCHERS)
 # A board with a fetcher of its own is part of the code, so the registry has it
 # even when the registry is empty - which is what a fresh clone, or a registry
@@ -82,7 +129,7 @@ try:
     listed = {(b["source"], b["org"]) for b in store.load_registry()["boards"]}
 finally:
     store._load = was
-for name in ("google", "microsoft", "apple", "uber", "shopify"):
+for name in ("google", "microsoft", "apple", "uber", "shopify", "netflix"):
     check(f"{name} registers itself", (name, name) in listed)
 check("snap registers itself, on Workday",
       ("workday", "snapchat|wd1.myworkdaysite.com/recruiting|snap") in listed)

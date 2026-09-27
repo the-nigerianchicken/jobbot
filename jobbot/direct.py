@@ -2,7 +2,7 @@
 
 Most employers rent an ATS, and we read the ATS feed: one client covers eight
 hundred companies. The largest employers do not. Google, Microsoft, Apple and
-Uber each built their own careers site, so none of them has ever reached him
+Uber each built their own careers site (and Netflix moved to one), so none of them has ever reached him
 from the two thousand boards in the registry - he has been finding them by
 hand, which is the thing this was built to stop (2026-09-24).
 
@@ -366,8 +366,48 @@ def _title_from_slug(slug):
     return " ".join(words)
 
 
+# ---------------------------------------------------------------------------
+# Netflix - left Workday for a careers site of its own, on Eightfold. The
+# Workday board it left behind answered every request with a 422 and had never
+# once returned a posting - 1,478 tries by 2026-09-27 - so Netflix, one of the
+# companies he follows, had never reached him at all. The site's search API
+# answers a server, ten postings a page, with Netflix's own creation time and
+# the whole description.
+# ---------------------------------------------------------------------------
+NETFLIX_API = "https://explore.jobs.netflix.net/api/apply/v2/jobs"
+# "co-op" only ever matched descriptions, never a student role.
+NETFLIX_QUERIES = ("intern", "internship")
+
+
+def netflix(org="netflix", pages=5) -> list[Posting]:
+    out, seen = [], set()
+    for q in NETFLIX_QUERIES:
+        for page in range(pages):
+            data = _json_page(NETFLIX_API, {"domain": "netflix.com", "query": q,
+                                            "start": page * 10, "num": 10})
+            found = data.get("positions") or []
+            for p in found:
+                jid = str(p.get("id") or p.get("ats_job_id") or "")
+                if not jid or jid in seen:
+                    continue
+                seen.add(jid)
+                url = p.get("canonicalPositionUrl") or f"https://explore.jobs.netflix.net/careers/job/{jid}"
+                where = p.get("locations") or ([p["location"]] if p.get("location") else [])
+                out.append(Posting(
+                    source="netflix", org="netflix", company="Netflix",
+                    title=p.get("name", ""),
+                    location="; ".join(where)[:200],
+                    url=url, apply_url=url,
+                    posted_at=_ts(p.get("t_create")),
+                    description=_strip(p.get("job_description") or "") or p.get("name", ""),
+                    raw_id=jid))
+            if len(found) < 10 or (page + 1) * 10 >= (data.get("count") or 0):
+                break
+    return out
+
+
 FETCHERS = {"google": google, "microsoft": microsoft, "apple": apple,
-            "uber": uber, "shopify": shopify}
+            "uber": uber, "shopify": shopify, "netflix": netflix}
 
 # Boards that exist because there is code here to read them, rather than
 # because a list mentioned them. The registry gets them whether or not anyone
@@ -382,6 +422,7 @@ BUILTIN = [
     {"source": "microsoft", "org": "microsoft", "target": True},
     {"source": "apple", "org": "apple", "target": True},
     {"source": "shopify", "org": "shopify", "target": True},
+    {"source": "netflix", "org": "netflix", "target": True},
     {"source": "uber", "org": "uber", "target": False},
     {"source": "workday", "org": "snapchat|wd1.myworkdaysite.com/recruiting|snap", "target": True},
 ]

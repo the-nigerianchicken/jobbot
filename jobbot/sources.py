@@ -266,7 +266,8 @@ def _direct(name):
 FETCHERS = {"greenhouse": greenhouse, "lever": lever, "ashby": ashby, "amazon": amazon,
             "workday": workday, "community": _community,
             "google": _direct("google"), "microsoft": _direct("microsoft"),
-            "apple": _direct("apple"), "uber": _direct("uber"), "shopify": _direct("shopify")}
+            "apple": _direct("apple"), "uber": _direct("uber"), "shopify": _direct("shopify"),
+            "netflix": _direct("netflix")}
 
 # Ashby's public board feed omits application deadlines, so a posting whose
 # deadline passed in May can be re-published today and look brand new (NPX,

@@ -99,6 +99,15 @@ def update_health(reg, health, matched_keys):
                     s["enabled"] = False
             else:
                 s["soft_failures"] = s.get("soft_failures", 0) + 1
+            # A soft failure is for a board that is sometimes down. One that
+            # has never answered at all, in a hundred tries, is not down - it is
+            # gone: a company that left Workday answers its old address with a
+            # 422 for ever. 41 such boards had cost 8,598 wasted requests by
+            # 2026-09-27, and the one among them he cares about, Netflix, was
+            # never noticed because it failed quietly every time.
+            if not s["ok_runs"] and s["fail_runs"] >= 100 and s["enabled"]:
+                s["enabled"] = False
+                print(f"board switched off - never answered in {s['fail_runs']} tries: {key}")
         s["matches_ever"] += matched_keys.get(key, 0)
     return reg
 
@@ -109,7 +118,11 @@ def update_health(reg, health, matched_keys):
 def is_hot(board, stats):
     key = f"{board['source']}:{board['org']}"
     s = stats.get(key, {})
-    return bool(board.get("target") or s.get("matches_ever", 0) or s.get("last_ok") is None)
+    # New boards are tried eagerly. "New" means not yet tried, not "never
+    # worked": that reading kept every dead Workday board in the hot tier,
+    # polled every sweep, for as long as it kept failing.
+    new = s.get("last_ok") is None and s.get("fail_runs", 0) < 10
+    return bool(board.get("target") or s.get("matches_ever", 0) or new)
 
 
 def active_boards(reg, workday="hot", targets_only=False):
