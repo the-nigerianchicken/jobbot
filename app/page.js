@@ -35,8 +35,9 @@ export const PAGE = String.raw`<!doctype html>
   :root {
     color-scheme: light;
     --bg:#f7f7f8; --panel:#ffffff; --line:#e7e7ea; --line-2:#d9d9de; --hover:#f3f3f5; --sel:#eeeef1;
-    --text:#18181b; --text-2:#52525b; --text-3:#8b8b94;
+    --text:#18181b; --text-2:#52525b; --text-3:#6f6f78;
     --primary:#18181b; --on-primary:#ffffff; --accent:#2563eb;
+    --logo-lit:#ffffff;
     --blue:#2563eb; --amber:#c2410c; --amber-bg:#fff7ed; --green:#15803d; --violet:#6d28d9; --red:#dc2626;
     --font: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --rail: 420px;
@@ -46,7 +47,7 @@ export const PAGE = String.raw`<!doctype html>
       color-scheme: dark;
       --bg:#09090b; --panel:#111114; --line:#232328; --line-2:#2f2f35; --hover:#18181c; --sel:#1d1d22;
       --text:#fafafa; --text-2:#b4b4bc; --text-3:#7d7d86;
-      --primary:#fafafa; --on-primary:#09090b; --accent:#60a5fa;
+      --primary:#fafafa; --on-primary:#09090b; --accent:#60a5fa; --logo-lit:#f4f4f5;
       --blue:#60a5fa; --amber:#fb923c; --amber-bg:#221811; --green:#4ade80; --violet:#a78bfa; --red:#f87171;
     }
   }
@@ -54,14 +55,14 @@ export const PAGE = String.raw`<!doctype html>
     color-scheme: dark;
     --bg:#09090b; --panel:#111114; --line:#232328; --line-2:#2f2f35; --hover:#18181c; --sel:#1d1d22;
     --text:#fafafa; --text-2:#b4b4bc; --text-3:#7d7d86;
-    --primary:#fafafa; --on-primary:#09090b; --accent:#60a5fa;
+    --primary:#fafafa; --on-primary:#09090b; --accent:#60a5fa; --logo-lit:#f4f4f5;
     --blue:#60a5fa; --amber:#fb923c; --amber-bg:#221811; --green:#4ade80; --violet:#a78bfa; --red:#f87171;
   }
   :root[data-theme="dim"] {
     color-scheme: dark;
     --bg:#1c1f24; --panel:#23272e; --line:#323740; --line-2:#3d434d; --hover:#2a2f37; --sel:#303641;
-    --text:#e6e8eb; --text-2:#aeb4bd; --text-3:#808792;
-    --primary:#e6e8eb; --on-primary:#1c1f24; --accent:#7aa7ff;
+    --text:#e6e8eb; --text-2:#aeb4bd; --text-3:#89909b;
+    --primary:#e6e8eb; --on-primary:#1c1f24; --accent:#7aa7ff; --logo-lit:#f4f4f5;
     --blue:#7aa7ff; --amber:#f0a868; --amber-bg:#2e2923; --green:#6fcf97; --violet:#b39dff; --red:#f28b82;
   }
   :root[data-accent="blue"]   { --primary:#2563eb; --on-primary:#ffffff; --accent:#2563eb; }
@@ -111,7 +112,7 @@ export const PAGE = String.raw`<!doctype html>
   .search { display:flex; gap:8px; }
   .search input { flex:1; min-width:0; height:34px; padding:0 11px; border:1px solid var(--line-2); border-radius:8px;
                   background:var(--panel); font-size:13.5px; }
-  .search input:focus { outline:none; border-color:var(--text-3); }
+  .search input:focus { outline:none; border-color:var(--blue); box-shadow:0 0 0 3px color-mix(in srgb, var(--blue) 22%, transparent); }
   .chips { display:flex; gap:6px; flex-wrap:wrap; }
   .chips button .n { color:inherit; opacity:.6; font-variant-numeric:tabular-nums; margin-left:2px; }
   .chips button:disabled { opacity:.4; cursor:default; }
@@ -129,6 +130,15 @@ export const PAGE = String.raw`<!doctype html>
   .list-menu { position:absolute; right:14px; top:calc(100% - 4px); z-index:7; min-width:230px;
     box-shadow:0 12px 32px rgba(0,0,0,.22); }
   .fpanel { margin-top:10px; display:flex; flex-direction:column; gap:12px; padding-top:10px; border-top:1px solid var(--line); }
+  .fshow { display:none; }
+  @media (max-width: 899px) {
+    /* Pinned to the bottom of the panel, so it is under his thumb however far
+       down the chips he has scrolled. */
+    .fpanel .fshow { display:flex; justify-content:center; align-items:center; position:sticky; bottom:10px;
+             width:100%; height:48px; font-size:16px; margin-top:4px; box-shadow:0 8px 24px rgba(0,0,0,.28); }
+    /* Room at the end, so the last chips can scroll clear of the button. */
+    .fpanel { padding-bottom:6px; }
+  }
   .ftitle { font-size:12px; color:var(--text-3); margin-bottom:6px; }
   .chips.active { margin-top:10px; align-items:center; }
   .slide-l { animation:from-right .16s ease-out; }
@@ -143,6 +153,7 @@ export const PAGE = String.raw`<!doctype html>
   .closes.soon { color:var(--red); font-weight:600; }
   .unread { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--accent);
     margin-left:7px; vertical-align:middle; }
+  .age .unread { margin-left:0; }
   /* What a swipe reveals under the row. */
   .swipe { position:relative; overflow:hidden; }
   .swipe::before { content:attr(data-label); position:absolute; inset:0; display:flex; align-items:center;
@@ -188,9 +199,18 @@ export const PAGE = String.raw`<!doctype html>
   .row .main { flex:1; min-width:0; display:block; }
   .row .main > span { display:block; }
   .row .main > .line1, .row .main > .line3 { display:flex; }
-  .line1 { align-items:baseline; gap:8px; }
-  .co { font-weight:600; font-size:14px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .age { font-size:12px; color:var(--text-3); flex:none; font-variant-numeric:tabular-nums; }
+  .line1 { align-items:flex-start; gap:10px; }
+  .role { flex:1; min-width:0; font-weight:600; font-size:15px; line-height:1.3; color:var(--text);
+          letter-spacing:-.005em; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+          overflow:hidden; }
+  .age { font-size:12px; color:var(--text-3); flex:none; font-variant-numeric:tabular-nums;
+         display:flex; align-items:center; gap:6px; padding-top:2px; }
+  .row .main > .sub { display:flex; gap:8px; margin-top:3px; font-size:13px; line-height:1.35; min-width:0; }
+  .sub .co { color:var(--text-2); font-weight:500; flex:none; max-width:55%;
+             white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sub .where { color:var(--text-3); min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .line3 .term { color:var(--text-2); background:var(--sel); border-radius:5px; padding:1px 7px;
+                 font-size:11.5px; font-weight:500; line-height:1.6; }
   .title { color:var(--text-2); font-size:13.5px; margin-top:1px; display:-webkit-box; -webkit-line-clamp:2;
            -webkit-box-orient:vertical; overflow:hidden; }
   .row .main > .title { display:-webkit-box; }
@@ -224,7 +244,11 @@ export const PAGE = String.raw`<!doctype html>
           background:var(--panel); position:relative; overflow:hidden; display:flex;
           align-items:center; justify-content:center; font-weight:600; font-size:13px; color:var(--text-2); }
   .logo img { position:absolute; inset:5px; width:calc(100% - 10px); height:calc(100% - 10px);
-              object-fit:contain; background:var(--panel); }
+              object-fit:contain; background:transparent; }
+  /* Favicons are drawn for a light browser tab. On a dark tile a dark mark
+     simply disappears - Rivian and Tonal were blank squares - so a tile whose
+     icon has loaded turns light. One with no icon keeps its letter. */
+  .logo.lit { background:var(--logo-lit); border-color:transparent; }
   .logo.big { width:52px; height:52px; border-radius:11px; font-size:18px; }
   .logo.big img { inset:8px; width:calc(100% - 16px); height:calc(100% - 16px); }
 
@@ -271,7 +295,11 @@ export const PAGE = String.raw`<!doctype html>
   details.fold > summary h2 { margin:0; }
   details.fold > summary .hint { font-size:12px; color:var(--text-3); margin-left:auto; }
   .sec h2 { margin:0 0 12px; font-size:13px; font-weight:600; color:var(--text-2); }
-  .jd { font-size:15px; line-height:1.65; color:var(--text); max-width:70ch; }
+  /* A measure of about 72 characters. It was 70ch - but ch is the width of a
+     zero, and in Geist that is far wider than an average letter, so the lines
+     ran to a hundred characters and the eye lost its place in long postings.
+     em follows real text. */
+  .jd { font-size:16px; line-height:1.65; color:var(--text); max-width:34em; }
   .jd p { margin:0 0 12px; }
   .jd ul { margin:0 0 14px; padding-left:20px; }
   .jd li { margin:3px 0; }
@@ -310,9 +338,18 @@ export const PAGE = String.raw`<!doctype html>
   .field input, .field select { flex:1; min-width:0; height:34px; padding:0 10px; border:1px solid var(--line-2);
                                 border-radius:8px; background:var(--panel); font-size:13.5px; }
   .field textarea { flex:1; min-height:80px; }
+  /* The applied list is a record of employers, so it leads with the company. */
+  .line1 > .co { font-weight:600; font-size:14.5px; flex:1; min-width:0;
+                 white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* Out of three hundred applications a handful move, and those are the ones
+     that need him: an interview or an OA is a tinted pill he cannot scroll past.
+     "No response" is most of the list and stays quiet, and so does a rejection
+     - a hundred red labels would be noise, and demoralising noise at that. */
   .out { font-size:12px; font-weight:500; color:var(--text-3); flex:none; }
-  .out.o-OA, .out.o-interview { color:var(--violet); }
-  .out.o-offer, .out.o-accepted { color:var(--green); }
+  .out.o-OA, .out.o-interview { color:var(--violet); background:color-mix(in srgb, var(--violet) 15%, transparent);
+                                padding:1px 8px; border-radius:999px; font-weight:600; }
+  .out.o-offer, .out.o-accepted { color:var(--green); background:color-mix(in srgb, var(--green) 15%, transparent);
+                                  padding:1px 8px; border-radius:999px; font-weight:600; }
   .stats { display:flex; gap:18px; font-size:12.5px; color:var(--text-3); flex-wrap:wrap; }
   .stats b { color:var(--text); font-weight:600; }
 
@@ -347,7 +384,7 @@ export const PAGE = String.raw`<!doctype html>
   .settings .field.col { flex-direction:column; align-items:stretch; gap:6px; }
   .settings .field.col label { flex:none; }
   .settings .field label { flex-basis:150px; }
-  .settings .opt.on { border-color:var(--primary); box-shadow:inset 0 0 0 1px var(--primary); }
+  .settings .opt.on { border-color:var(--primary); box-shadow:none; }
   .toggle { display:flex; gap:12px; align-items:flex-start; padding:10px 0; cursor:pointer; }
   .toggle + .toggle { border-top:1px solid var(--line); }
   .toggle input { margin-top:3px; width:16px; height:16px; accent-color:var(--primary); flex:none; }
@@ -388,7 +425,13 @@ export const PAGE = String.raw`<!doctype html>
   .opt { border:1px solid var(--line-2); background:var(--panel); border-radius:10px; padding:10px 14px;
          font-size:13.5px; font-weight:500; display:flex; align-items:center; gap:8px; }
   .opt:hover { background:var(--hover); }
-  .opt.on { border-color:var(--primary); box-shadow:0 0 0 1px var(--primary); }
+  /* Chosen, said with a tick rather than a heavier outline: a double border
+     read as keyboard focus, and with seven of eight terms on, a solid fill
+     would be a wall of white. What is off steps back instead. */
+  .opt.on { border-color:var(--primary); box-shadow:none;
+            background:color-mix(in srgb, var(--primary) 9%, var(--panel)); color:var(--text); }
+  .opt.on::before { content:"\2713"; font-weight:700; font-size:12px; margin-right:-2px; }
+  .opts .opt:not(.on) { color:var(--text-3); border-style:dashed; }
   .swatch { width:16px; height:16px; border-radius:50%; border:1px solid rgba(0,0,0,.12); }
   .follows { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
   .follows span { display:inline-flex; align-items:center; gap:6px; background:var(--panel);
@@ -445,6 +488,18 @@ export const PAGE = String.raw`<!doctype html>
     body.reading .rail { --rail-x:-22%; }
     /* While a finger is down the panels track it exactly: no easing in the way. */
     body.dragging .rail, body.dragging .detail { transition:none; }
+    /* At rest, no transform at all. Even an identity transform makes a panel
+       the containing block for anything position:fixed inside it, so every
+       sheet opened from a posting was placed relative to how far he had
+       scrolled the description - halfway up the screen, with a scrim that
+       covered half of it. Transitions still run: none is the identity. */
+    body.reading:not(.dragging) .detail { transform:none; }
+    body:not(.reading):not(.dragging):not(.refreshing) .rail { transform:none; }
+    /* A sheet is modal: it and its scrim go over the tab bar and the title bar
+       too. They live inside the shell, whose stacking context sat under the tab
+       bar, so the bottom row of every sheet - Archive, on a posting - was
+       painted over by the tabs, and a tap on it went to the Jobs tab. */
+    .shell:has(.actions > .menu, .tools > .list-menu) { z-index:50; }
 
     .d { padding:14px 18px calc(84px + env(safe-area-inset-bottom, 0px)); min-height:100%;
          display:flex; flex-direction:column; }
@@ -452,7 +507,14 @@ export const PAGE = String.raw`<!doctype html>
     .d > .back { order:0; }
     .d > .d-head { order:1; }
     .d > .actions { order:9; }
-    .back { display:inline-flex !important; margin-bottom:14px; align-self:flex-start; }
+    /* Navigation, not an action: no box around it, in the colour links are,
+       and tucked to the edge so the posting starts a row higher. The hit area
+       stays a full 44px. */
+    .back { display:inline-flex !important; align-self:flex-start; align-items:center;
+            min-height:44px; margin:-10px 0 2px -10px; padding:0 12px 0 8px;
+            border:0 !important; background:none !important; box-shadow:none !important;
+            color:var(--accent) !important; font-size:15.5px; font-weight:500; }
+    .back:active { opacity:.5; }
     .d-title { font-size:22px; }
     /* The controls sit where his thumb is. Fixed inside the sliding panel, so
        they stay put while the posting scrolls and still travel with the slide. */
@@ -494,12 +556,40 @@ export const PAGE = String.raw`<!doctype html>
       background:rgba(0,0,0,.3); animation:scrim-in .22s ease-out; }
     .row { padding:13px 14px; }
     .jd { font-size:15.5px; }
+    /* The controls hit most were the smallest: the tabs and toolbar at 32px,
+       and "Check now" a line of text 18px tall. 40px is as tall as a toolbar
+       can be and still read as one row; the text link keeps its look and gets
+       a 44px target around it instead. */
+    .search input { height:40px; font-size:16px; }
+    /* Tall enough for a thumb, narrow enough that all five still fit across a
+       phone without "All" hanging off the edge. */
+    .zones button { min-height:40px; padding:0 8px; }
+    #ftoggle, #sort, #listmore { height:40px; }
+    /* iOS Safari zooms the whole page into any field under 16px when it is
+       tapped, and does not zoom back out. */
+    #sort { font-size:16px; }
+    #listmore { min-width:40px; }
+    #recheck { position:relative; }
+    #recheck::after { content:""; position:absolute; left:-10px; right:-10px; top:-13px; bottom:-13px; }
     /* A label beside a box leaves neither enough room on a phone. Stacked, the
        box is the width of the screen and the hint sits under it where it reads.
        Every form gets this: settings, answers, and adding a job by hand. */
     .field { flex-direction:column; align-items:stretch; gap:6px; padding:12px 0; }
     .field label { flex:none; font-size:12.5px; color:var(--text-3); }
-    .field input, .field select, .field textarea { height:42px; font-size:16px; }
+    .field input, .field select { height:44px; min-height:44px; font-size:16px; }
+    /* The input carries flex:1 so that, beside its label, it fills the row. On
+       a phone the field stacks into a column, and that same flex:1 then runs
+       downward: a basis of zero beats height, and every box in Settings was 22px
+       tall. min-height is honoured whatever the basis, so it holds. */
+    /* And nothing typed into on a phone may be under 16px: iOS Safari zooms the
+       whole page into any smaller field when it is tapped, and stays zoomed.
+       Every textarea in Settings was 14px, and the small inputs 12px. */
+    .detail textarea, .detail select,
+    .detail input:not([type=checkbox]):not([type=radio]):not([type=file]) { font-size:16px; }
+    .words input { min-height:40px; flex:1 1 100%; }
+    /* A floor for every box he types into, wherever it sits: the tools under
+       each fact on his profile were 34px, inside a label rather than a field. */
+    .detail input:not([type=checkbox]):not([type=radio]):not([type=file]) { min-height:40px; }
     .field textarea { height:auto; }
     .toast { --lift:calc(58px + env(safe-area-inset-bottom, 0px)); }
     body.reading .toast { --lift:calc(116px + env(safe-area-inset-bottom, 0px)); }
@@ -556,6 +646,19 @@ export const PAGE = String.raw`<!doctype html>
     .tabbar button[data-go="settings"] svg { stroke-width:1.4; }
     .tabbar button.on { color:var(--primary); }
     .tabbar button:active { background:var(--hover); }
+    /* Reading a posting is a place of its own, the way a pushed screen is on
+       iOS: the tabs step aside and the posting's own actions take the bottom
+       edge. With both stacked there, under two-thirds of the screen was left
+       for the words. Back, or a swipe from the edge, brings the tabs back. */
+    .tabbar { transition:transform .32s var(--ease); }
+    body.reading .tabbar { transform:translate3d(0, 100%, 0); }
+    body.reading .shell { bottom:0; }
+    /* Settings is one of the tabs, not a screen pushed from one, so it keeps
+       them - and has nothing to go back to. It opens in the same pane a job
+       does, which is why it has to be told apart here. */
+    body.reading:has(.detail > .d.settings) .tabbar { transform:none; }
+    body.reading:has(.detail > .d.settings) .shell { bottom:var(--bar-h); }
+    .d.settings > .back { display:none !important; }
     /* Opening a job fades in. It cannot move: a transform on this element
        would make it the anchor for the fixed action bar inside it. */
     body.reading .detail { animation:open-in .18s ease-out; }
@@ -571,8 +674,8 @@ export const PAGE = String.raw`<!doctype html>
     body.reading .detail { animation:none; }
     /* The panels still move, because where they are is the information; they
        just get there at once. */
-    .rail, .detail, .pull { transition-duration:.01ms; }
-    body.reading .actions > .menu, .scrim { animation:none; }
+    .rail, .detail, .pull, .tabbar { transition-duration:.01ms; }
+    body.reading .actions > .menu, .tools > .list-menu, .scrim { animation:none; }
     .swipe .row { transition:none !important; }
   }
 </style></head><body>
@@ -609,6 +712,8 @@ const ZONES = [
                   ["building", "Writing your resume"], ["working", "Applying"], ["done", "Applied this week"]]],
 ];
 const OUTCOMES = ["no response","OA","interview","offer","accepted","rejected","withdrawn"];
+// How a status reads. The stored value is what the filter and the spreadsheet use.
+const outcomeLabel = (o) => o === "OA" ? "OA" : o ? o[0].toUpperCase() + o.slice(1) : "All";
 // How the list is narrowed and ordered. Remembered on this device.
 const SEASON_RANK = { Winter: 0, Spring: 1, Summer: 2, Fall: 3 };
 const SORTS = [["new", "Newest first"], ["fit", "Best match first"],
@@ -743,7 +848,8 @@ function logo(company, url, big) {
   const d = domainFor(company, url);
   const letter = esc((String(company || "?").trim()[0] || "?").toUpperCase());
   return '<span class="logo' + (big ? " big" : "") + '">' + letter +
-    (d ? '<img alt="" loading="lazy" src="https://icons.duckduckgo.com/ip3/' + esc(d) + '.ico" onerror="this.remove()">' : "") +
+    (d ? '<img alt="" loading="lazy" src="https://icons.duckduckgo.com/ip3/' + esc(d) +
+      '.ico" data-lit="lit" onload="this.parentNode.classList.add(this.dataset.lit)" onerror="this.remove()">' : "") +
     "</span>";
 }
 
@@ -976,10 +1082,16 @@ function filterPanel() {
                            ["unopened", "Not opened yet", jobs.filter((j) => j.state !== "skipped" && inZone(j) && passes(j, "unopened") && !opened.has(j.uid)).length]]],
   ];
   const isOn = (g, k) => g === "posted" ? view.posted === k : g === "only" ? !!view[k] : view[g].includes(k);
+  // On a phone the panel fills the screen and every result is under it. The
+  // only way back used to be tapping "Filters" again, which nothing suggested;
+  // this says how many jobs are waiting and takes him to them.
+  const n = shown().length;
+  const done = '<button class="btn primary fshow" id="fshow">' +
+    (n ? "Show " + n + (n === 1 ? " job" : " jobs") : "Nothing matches these filters") + "</button>";
   return '<div class="fpanel">' + groups.map(([title, g, opts]) => '<div class="fgroup"><div class="ftitle">' + title +
     '</div><div class="chips">' + opts.filter(([k, , n]) => n || isOn(g, k))
       .map(([k, l, n]) => chip(g, k, l, n, isOn(g, k))).join("") + "</div></div>").join("") +
-    "</div>";
+    done + "</div>";
 }
 function activeChips() {
   const label = (g, k) => g === "where" ? { canada: "Canada", us: "United States", remote: "Remote" }[k]
@@ -997,8 +1109,28 @@ function activeChips() {
     '<button class="link" id="clear-f">Clear all</button></div>';
 }
 
+// "Winter 2027 / Spring 2027 / Summer 2027" as a person would say it:
+// "Winter, Spring, Summer 2027". It was cutting the location off the line.
+function termShort(t) {
+  const parts = String(t || "").split(/\s*\/\s*/).map((x) => x.trim()).filter(Boolean);
+  if (parts.length < 2) return parts[0] || "";
+  const byYear = new Map();
+  for (const x of parts) {
+    const m = x.match(/^(\w+)\s+(\d{4})$/);
+    if (!m) return parts.join(", ");
+    if (!byYear.has(m[2])) byYear.set(m[2], []);
+    byYear.get(m[2]).push(m[1]);
+  }
+  return [...byYear].map(([y, seasons]) => seasons.join(", ") + " " + y).join("; ");
+}
+
+// The role is what he scans a list of jobs for, so it leads. The company
+// sits under it, beside the place: the logo already says whose job it is
+// at a glance, and a title muted under a bold company name made every row
+// read as a list of employers rather than a list of jobs.
 function rowHtml(j) {
-  const bits = [real(j.where), j.term].filter(Boolean).map((b) => "<span>" + esc(b) + "</span>").join("") +
+  const where = real(j.where);
+  const extras = (j.term ? '<span class="term">' + esc(termShort(j.term)) + "</span>" : "") +
     (j.referred_at ? '<span class="asked">Referral asked</span>' : "") +
     (closing(j) ? '<span class="closes' + (closing(j) <= 2 ? " soon" : "") + '">' +
       (closing(j) <= 0 ? "Closes today" : "Closes in " + closing(j) + (closing(j) === 1 ? " day" : " days")) +
@@ -1006,11 +1138,12 @@ function rowHtml(j) {
   return '<button class="row' + (current === j.uid ? " sel" : "") + (picked.has(j.uid) ? " picked" : "") +
     '" data-uid="' + esc(j.uid) + '">' +
     (selecting ? '<span class="tick"></span>' : logo(j.company, j.url || j.apply_url)) +
-    '<span class="main"><span class="line1"><span class="co">' + esc(j.company) +
-      (j.state === "new" && !opened.has(j.uid) ? '<i class="unread" title="Not opened yet"></i>' : "") + "</span>" +
-      '<span class="age">' + age(j.posted_at) + "</span></span>" +
-      '<span class="title">' + esc(j.title) + "</span>" +
-      (bits ? '<span class="line3">' + bits + "</span>" : "") +
+    '<span class="main"><span class="line1"><span class="role">' + esc(j.title) + "</span>" +
+      '<span class="age">' + age(j.posted_at) +
+      (j.state === "new" && !opened.has(j.uid) ? '<i class="unread" title="Not opened yet"></i>' : "") + "</span></span>" +
+      '<span class="sub"><span class="co">' + esc(j.company) + "</span>" +
+        (where ? '<span class="where">' + esc(where) + "</span>" : "") + "</span>" +
+      (extras ? '<span class="line3">' + extras + "</span>" : "") +
       (j.state === "new" && match(j).hits.length
         ? '<span class="line3 fits">' + match(j).hits.slice(0, 3).map((h) => "<span>" + esc(h) + "</span>").join("") +
           "</span>" : "") +
@@ -1040,8 +1173,11 @@ function renderBeat() {
     ? '<span class="working"><i class="spin"></i>' + esc(busyNow.map((b) => b.says +
         (b.n > 1 ? " (" + b.n + ")" : "")).join(", ")) + "</span>"
     : '<span class="beat' + (checked && Date.now() - new Date(checked) > 75 * 60000 ? " cold" : "") + '">' +
-      (checked ? "Checked " + age(checked) + (small ? "" : " ago") : "Waiting for the first check") +
-      (newest ? " \u00b7 newest posting " + age(newest) + (small ? "" : " old") : "") +
+      // On a phone the title bar holds one fact, not two: the list right under
+      // it already shows how old the newest posting is, and both together ran
+      // off the edge as "Waiting for the first check - newest ...".
+      (checked ? "Checked " + age(checked) + " ago" : small ? "Not checked yet" : "Waiting for the first check") +
+      (newest && !small ? " \u00b7 newest posting " + age(newest) + " old" : "") +
       '</span><button class="link" id="recheck">Check now</button>';
   const again = document.getElementById("recheck");
   if (again) again.onclick = () => checkNow();
@@ -1059,8 +1195,8 @@ function renderRail() {
   }).join("");
   const archived = list.filter((j) => j.state === "skipped");
   const EMPTY = {
-    new: ["Nothing new", "Postings appear here as jobbot finds them, within five minutes. " +
-          "Found one yourself? Add it at the bottom of this list."],
+    new: ["Nothing new", "jobbot checks the boards through the day and puts what it finds here. " +
+          "Found one yourself? Add it from the menu beside Filters."],
     needs: ["Nothing needs you", "Applications that stop on a code or a question wait here."],
     progress: ["Nothing under way", "Tap Apply on a posting and its resume starts here."],
     done: ["Nothing applied this week", "Jobs you send go here, and to the Applied tab for good."],
@@ -1109,6 +1245,11 @@ function renderRail() {
     rail.scrollTop = 0;                                   // a new tab starts at its top
   });
   document.getElementById("ftoggle").onclick = () => { filtersOpen = !filtersOpen; renderRail(); };
+  const fshow = document.getElementById("fshow");
+  if (fshow) fshow.onclick = () => {
+    filtersOpen = false; renderRail();
+    document.getElementById("rail").scrollTo({ top: 0, behavior: "smooth" });
+  };
   document.getElementById("sort").onchange = (e) => { view.sort = e.target.value; saveView(); renderRail(); };
   rail.querySelectorAll("[data-f]").forEach((b) => b.onclick = () => {
     const g = b.dataset.f, k = b.dataset.k;
@@ -1201,7 +1342,9 @@ function actionsFor(j) {
   const link = (href, label, kind) =>
     '<a class="btn ' + (kind || "") + '" href="' + esc(href) + '" target="_blank" rel="noopener">' + label + "</a>";
   const act = (c, label, kind) => '<button class="btn ' + (kind || "") + '" data-cmd="' + c + '">' + label + "</button>";
-  const form = j.apply_url ? link(j.apply_url, "Open application") : (j.url ? link(j.url, "Open posting") : "");
+  // Beside the main action on a phone there is room for about ten letters;
+  // "Open application" was cut to "Open applicat". Alone, it keeps its name.
+  const form = j.apply_url ? link(j.apply_url, "Open form") : (j.url ? link(j.url, "Open posting") : "");
   let main = "";
   if (j.state === "new") main = act("build", j.byHand ? "Write my resume" : "Apply for me", "primary");
   else if (j.state === "ready" && !j.byHand) main = act("approve", "Apply for me", "primary");
@@ -1316,7 +1459,7 @@ function renderJob() {
   const locs = String(j.location || "").split(/;|•/).map((s) => s.trim()).filter(Boolean);
   const tags = [
     locs.length ? locs[0] + (locs.length > 1 ? " and " + (locs.length - 1) + " more" : "") : "",
-    j.term || "", ago(j.posted_at), j.deadline ? "Closes " + String(j.deadline).slice(0, 10) : "",
+    termShort(j.term), ago(j.posted_at), j.deadline ? "Closes " + String(j.deadline).slice(0, 10) : "",
   ].filter(Boolean).map((t) => '<span class="tag">' + esc(t) + "</span>").join("") +
     (followed(j) ? '<span class="tag follow">Company you follow</span>' : "");
 
@@ -2056,7 +2199,7 @@ async function settingsPane(keepScroll) {
   const s = drafts[setTab];
   const kept = ["search", "profile", "resume", "answers", "alerts"].includes(setTab);
   let body;
-  if (kept && !s) body = '<p class="quiet">jobbot sends its defaults on its next check, within five minutes. ' +
+  if (kept && !s) body = '<p class="quiet">jobbot sends its defaults on its next check. ' +
     "This section appears then.</p>";
   else if (setTab === "search") body = searchForm(s);
   else if (setTab === "profile") body = profileForm(s);
@@ -2276,14 +2419,15 @@ function renderApps() {
     '<div class="tools"><div class="search"><input id="aq" placeholder="Search applications" value="' + esc(appFind) +
       '"><button class="ghost" id="add">Add</button></div>' +
       '<div class="chips">' + ["", ...OUTCOMES].map((o) => '<button class="' + (appOutcome === o ? "on" : "") +
-        '" data-outcome="' + esc(o) + '">' + (o || "All") + (s[o] ? " " + s[o] : "") + "</button>").join("") + "</div>" +
+        '" data-outcome="' + esc(o) + '">' + esc(outcomeLabel(o)) +
+        (s[o] ? ' <span class="n">' + s[o] + "</span>" : "") + "</button>").join("") + "</div>" +
       '<div class="stats"><span><b>' + (s.total || 0) + "</b> sent</span><span><b>" + (s.live || 0) +
         "</b> waiting</span><span><b>" + ((s.interview || 0) + (s.OA || 0)) + "</b> interviews and OAs</span></div>" +
     "</div>" +
     (groups.length ? groups.map((g) => '<div class="group">' + esc(g.m) + ' <span class="n">' + g.rows.length + "</span></div>" +
       g.rows.map((r) => '<button class="row' + (currentApp === r.id ? " sel" : "") + '" data-id="' + r.id + '">' +
         logo(r.company, r.apply_url) + '<span class="main"><span class="line1"><span class="co">' + esc(r.company) +
-        '</span><span class="out o-' + String(r.outcome).replace(/[^A-Za-z]/g, "") + '">' + esc(r.outcome) + "</span></span>" +
+        '</span><span class="out o-' + String(r.outcome).replace(/[^A-Za-z]/g, "") + '">' + esc(outcomeLabel(r.outcome)) + "</span></span>" +
         '<span class="title">' + esc(r.title) + '</span><span class="line3"><span>' + esc(day(r.applied_at)) + "</span>" +
         (real(r.referral) ? "<span>Referred by " + esc(real(r.referral)) + "</span>" : "") + "</span></span></button>").join("")).join("")
       : '<div class="none"><b>Nothing here</b>Applications you send land here. Add older ones with Add.</div>') +
