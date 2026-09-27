@@ -830,9 +830,26 @@ check("the page has no leftover style placeholders", !/\$\{/.test(PAGE.slice(0, 
   await worker.scheduled({}, env, ran);
   check("a sweep a moment ago is left alone", sweeps() === before, `${sweeps()} vs ${before}`);
 
+  // Nothing asked for lately - an earlier part of this suite pressed Check now,
+  // which the clock rightly counts as a sweep in flight.
+  await env.DB.prepare("DELETE FROM meta WHERE key = 'dispatch'").bind().run();
   await beat(new Date(Date.now() - 40 * 60e3).toISOString());
   await worker.scheduled({}, env, ran);
   check("one forty minutes old is asked for", sweeps() > before, `${sweeps()} vs ${before}`);
+
+  // The sweep it asked for has not finished, so the heartbeat is still forty
+  // minutes old at the next tick. That is not a reason to ask again: it came in
+  // pairs, 37 seconds apart, until this (2026-09-27).
+  const asked = sweeps();
+  await worker.scheduled({}, env, ran);
+  check("the next tick does not ask for a second one", sweeps() === asked, `${sweeps()} vs ${asked}`);
+
+  // Once the interval has passed since it asked, with the heartbeat still not
+  // moving, it asks again: that sweep evidently never landed.
+  await env.DB.prepare("UPDATE meta SET at = ?1 WHERE key = 'dispatch'")
+    .bind(new Date(Date.now() - 45 * 60e3).toISOString()).run();
+  await worker.scheduled({}, env, ran);
+  check("but it asks again once the interval has passed", sweeps() > asked, `${sweeps()} vs ${asked}`);
 
   const last = await (await get("/api/jobs", as)).json();
   check("and the board still answers while it does", Array.isArray(last.jobs));

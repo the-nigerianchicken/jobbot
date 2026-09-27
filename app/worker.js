@@ -143,7 +143,17 @@ async function keepSweeping(env) {
     one(env, `SELECT value FROM meta WHERE key = 'checked'`),
     one(env, `SELECT value, at FROM meta WHERE key = 'dispatch'`).catch(() => null),
   ]);
-  const mins = beat ? (Date.now() - new Date(beat.value).getTime()) / 60000 : 999;
+  // A sweep it has just asked for counts as one. The heartbeat only moves when
+  // that sweep finishes, a minute or two later, and this clock runs every
+  // minute - so it saw nothing yet and asked again, and sweeps came in pairs
+  // 37 seconds apart (2026-09-27). "Check now" goes through the same record,
+  // so a sweep he starts himself resets this clock too.
+  const t = Date.now();
+  const last = (tried && parse(tried.value)) || {};
+  const sinceBeat = beat ? t - new Date(beat.value).getTime() : Infinity;
+  const sinceAsked = tried && last.ok ? t - new Date(tried.at).getTime() : Infinity;
+  const since = Math.min(sinceBeat, sinceAsked);
+  const mins = Number.isFinite(since) ? since / 60000 : 999;
   // A token that was refused is worth trying again every so often. He may have
   // granted the permission since, and nothing else would ever find out - the
   // warning would sit in his status line for good, long after it was true.
