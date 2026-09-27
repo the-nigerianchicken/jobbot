@@ -47,6 +47,11 @@ CREATE TABLE IF NOT EXISTS applications (
 );
 CREATE INDEX IF NOT EXISTS applications_when ON applications(applied_at DESC);
 CREATE INDEX IF NOT EXISTS applications_outcome ON applications(outcome);
+-- recordApplied asks whether an application is already on record, on every
+-- sweep, for every job he has applied to. Without these each ask read the
+-- whole table.
+CREATE INDEX IF NOT EXISTS applications_uid ON applications(uid);
+CREATE INDEX IF NOT EXISTS applications_same ON applications(company, title, applied_at);
 
 -- Why anything is the way it is.
 CREATE TABLE IF NOT EXISTS events (

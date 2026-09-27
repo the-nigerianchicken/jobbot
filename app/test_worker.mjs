@@ -68,10 +68,12 @@ check("the passcode is not the robot token",
   (await body("/api/ingest", "POST", { jobs: seed }, as)).status === 401);
 const robot = { authorization: "Bearer robot" };
 const put = await (await body("/api/ingest", "POST", { jobs: seed }, robot)).json();
-check("jobbot can report jobs in", put.written === 6 && put.jobs === 6, JSON.stringify(put));
+const held6 = async () => (await env.DB.prepare("SELECT COUNT(*) n FROM jobs").bind().first()).n;
+check("jobbot can report jobs in", put.written === 6 && (await held6()) === 6, JSON.stringify(put));
 await body("/api/ingest", "POST", { jobs: seed }, robot);
-const twice = await (await body("/api/ingest", "POST", { jobs: seed }, robot)).json();
-check("reporting the same jobs twice does not duplicate them", twice.jobs === 6);
+await body("/api/ingest", "POST", { jobs: seed }, robot);
+check("reporting the same jobs twice does not duplicate them", (await held6()) === 6);
+check("an upload's reply no longer counts the whole table", !("jobs" in put), JSON.stringify(put));
 
 /* ---------------------------------------------------------------- feed --- */
 
@@ -892,6 +894,40 @@ check("the page has no leftover style placeholders", !/\$\{/.test(PAGE.slice(0, 
   check("and it says where it came from", mine && /you added this/i.test(mine.note || ""), mine && mine.note);
   check("a capture without a link is refused",
     (await body("/api/capture", "POST", { company: "Meta" }, asExt)).status === 400);
+}
+
+/* ------------------------------------------------------ the read budget --- */
+// On 2026-09-26 the day's row reads ran out by the evening and the board went
+// blank. Three queries read whole tables on every upload; these hold them to
+// what they need.
+{
+  // A week-old filtered posting that is already stored is cleared once an hour,
+  // and never shown in the meantime.
+  const old = new Date(Date.now() - 9 * 864e5).toISOString();
+  await env.DB.prepare(`INSERT OR REPLACE INTO filtered (uid, company, title, reason, posted_at, seen_at)
+                        VALUES ('stale', 'oldco', 'Intern', 'title not a wanted role', ?1, ?1)`).bind(old).run();
+  const listed = (await (await get("/api/filtered", as)).json()).filtered;
+  check("a filtered posting past a week is never listed", !listed.some((f) => f.uid === "stale"));
+  const was = Date.prototype.getUTCMinutes;
+  Date.prototype.getUTCMinutes = function () { return 17; };
+  await worker.scheduled({}, env, { waitUntil: () => {} });
+  const mid = await env.DB.prepare("SELECT COUNT(*) n FROM filtered WHERE uid = 'stale'").bind().first();
+  Date.prototype.getUTCMinutes = function () { return 0; };
+  await worker.scheduled({}, env, { waitUntil: () => {} });
+  const top = await env.DB.prepare("SELECT COUNT(*) n FROM filtered WHERE uid = 'stale'").bind().first();
+  Date.prototype.getUTCMinutes = was;
+  check("the clock leaves it alone for most of the hour", mid.n === 1, String(mid.n));
+  check("and clears it on the hour", top.n === 0, String(top.n));
+
+  // An application jobbot sent is recorded once, however many sweeps re-send it.
+  const done = { uid: "sent1", company: "doneco", title: "Software Engineer Intern", state: "done",
+                 seen_at: iso(0.1), posted_at: iso(1) };
+  for (let i = 0; i < 3; i++) await body("/api/ingest", "POST", { jobs: [done] }, robot);
+  const rec = await env.DB.prepare("SELECT COUNT(*) n FROM applications WHERE uid = 'sent1'").bind().first();
+  check("an application re-sent by every sweep is recorded once", rec.n === 1, String(rec.n));
+  const plan = await env.DB.prepare(`EXPLAIN QUERY PLAN SELECT 1 FROM applications WHERE uid = 'x'`).bind().all();
+  check("and asking whether it is on record uses an index, not the whole table",
+    JSON.stringify(plan.results || plan).includes("applications_uid"), JSON.stringify(plan.results || plan));
 }
 
 /* ------------------------------------------------------------- logos --- */

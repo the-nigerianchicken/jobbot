@@ -98,7 +98,7 @@ export default {
     // One of these failing must not stop the other: when the database is out of
     // writes, keepSweeping threw and health never ran, so the one thing whose
     // job is to notice trouble was the first thing the trouble silenced.
-    for (const step of [keepSweeping, health]) {
+    for (const step of [keepSweeping, health, tidy]) {
       try { await step(e); } catch (err) { console.log("scheduled: " + step.name + ": " + err); }
     }
   },
@@ -164,6 +164,16 @@ async function keepSweeping(env) {
                   Date.now() - new Date(tried.at).getTime() > 2 * 60e3;
   if (!dueForSweep(mins, new Date().getUTCHours()) && !refused) return;
   await start(env, "watch.yml", { targets: "true" });
+}
+
+// Once an hour, week-old filtered postings are cleared. This used to run on
+// every chunk of every upload, and it reads the whole table each time: 1,463
+// times and 883,000 rows a day, most of the day's read allowance on its own
+// (2026-09-27). Hourly is 24.
+async function tidy(env) {
+  if (new Date().getUTCMinutes() !== 0) return;
+  const week = new Date(Date.now() - 7 * 864e5).toISOString();
+  await run(env, `DELETE FROM filtered WHERE COALESCE(posted_at, seen_at) < ?1`, week);
 }
 
 // Alive means: the last sweep succeeded, and one has run in the last two hours.
@@ -881,6 +891,10 @@ async function checkNow(env) {
   return json({ ok: true, said: "Checking the boards" });
 }
 
+// Every sweep re-sends the jobs he has applied to, and each comes through
+// here. As one question joined by OR, no index could answer it, so each call
+// read the whole applications table: 1,670 times and 520,000 rows a day
+// (2026-09-27). As two questions, each is one lookup in its own index.
 async function recordApplied(env, job, how) {
   const at = now();
   // If he asked someone before applying, that belongs on the record: it is the
@@ -889,8 +903,8 @@ async function recordApplied(env, job, how) {
   const r = await run(env,
     `INSERT INTO applications (uid, company, title, applied_at, outcome, apply_url, pdf, referral, how, updated_at)
      SELECT ?1, ?2, ?3, ?4, 'no response', ?5, ?6, ?9, ?7, ?8
-     WHERE NOT EXISTS (SELECT 1 FROM applications WHERE uid = ?1
-                       OR (company = ?2 AND title = ?3 AND applied_at = ?4))`,
+     WHERE NOT EXISTS (SELECT 1 FROM applications WHERE uid = ?1)
+       AND NOT EXISTS (SELECT 1 FROM applications WHERE company = ?2 AND title = ?3 AND applied_at = ?4)`,
     job.uid, job.company, job.title, at.slice(0, 10), job.apply_url || null, job.pdf || null, how, at, asked);
   if (!r.meta || !r.meta.changes) return null;                  // already recorded
   const row = await one(env, `SELECT * FROM applications WHERE uid = ?1 ORDER BY id DESC LIMIT 1`, job.uid);
@@ -975,6 +989,10 @@ async function ingest(request, env) {
     removed = gone.length;
   }
   if (Array.isArray(b.filtered)) {
+    // A week, the same as the feed. A posting already older than that is not
+    // stored in the first place, which costs nothing; one that ages past it
+    // while stored is cleared by tidy() once an hour.
+    const week = new Date(Date.now() - 7 * 864e5).toISOString();
     // Changing a rule has to change the board, not just what arrives next. A
     // posting he has never touched leaves when it stops matching, and the reason
     // goes with it so he can put it back from Filters. Anything he has acted on
@@ -997,17 +1015,13 @@ async function ingest(request, env) {
     }
     for (const f of b.filtered) {
       if (!f || !f.uid || !f.company) continue;
+      if (f.posted_at && String(f.posted_at) < week) continue;
       await run(env, `INSERT INTO filtered (uid, company, title, location, url, apply_url, posted_at, reason, data, seen_at)
                       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10 WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE uid = ?1)
                       ON CONFLICT(uid) DO UPDATE SET reason = excluded.reason WHERE filtered.reason IS NOT excluded.reason`,
         f.uid, f.company, f.title || "", f.location || null, f.url || null, f.apply_url || null,
         f.posted_at || null, f.reason || null, JSON.stringify(f), at);
     }
-    // A week, the same as the feed. jobbot sends the same few hundred every
-    // 15 minutes; one it already sent, for the same reason, costs no write -
-    // D1's free tier allows 100,000 a day.
-    const week = new Date(Date.now() - 7 * 864e5).toISOString();
-    await run(env, `DELETE FROM filtered WHERE COALESCE(posted_at, seen_at) < ?1`, week);
   }
   // The defaults Settings shows. The same every run unless a file changed,
   // and then an unchanged one costs no write.
@@ -1040,8 +1054,11 @@ async function ingest(request, env) {
       String(b.checked_at));
   }
   if (rows.length) await announce(env, rows);
-  const total = await one(env, `SELECT COUNT(*) n FROM jobs`);
-  return json({ ok: true, written, removed, jobs: total ? total.n : 0 });
+  // No count of the table here. It read every job on every upload - each chunk
+  // of every sweep - to put a number in a reply nothing reads: 3,953 times and
+  // 948,000 rows a day, the largest single use of the day's read allowance
+  // (2026-09-27).
+  return json({ ok: true, written, removed });
 }
 
 // jobbot pulls what he did in the app, applies it to its own files, and acks.
@@ -1063,7 +1080,8 @@ async function ackEvents(request, env) {
 async function filteredList(env) {
   const rows = await all(env, `SELECT uid, company, title, location, url, apply_url, posted_at, reason
                                FROM filtered WHERE uid NOT IN (SELECT uid FROM jobs)
-                               ORDER BY posted_at DESC LIMIT 500`);
+                               AND COALESCE(posted_at, seen_at) >= ?1
+                               ORDER BY posted_at DESC LIMIT 500`, new Date(Date.now() - 7 * 864e5).toISOString());
   return json({ filtered: rows.map((r) => ({ ...r, company: pretty(r.company),
                                              where: shortLocation(r.location),
                                              why: plainReason(r.reason, r.title)[0],
