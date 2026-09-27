@@ -877,6 +877,30 @@ check("the page has no leftover style placeholders", !/\$\{/.test(PAGE.slice(0, 
     (await body("/api/capture", "POST", { company: "Meta" }, asExt)).status === 400);
 }
 
+/* ------------------------------------------------------------- logos --- */
+// Served from here so the page can read the pixels and choose the tile; the
+// upstream is stood in for, so nothing in this suite ever goes to the network.
+{
+  const before = globalThis.fetch;
+  let answer = () => new Response(new Uint8Array([137, 80, 78, 71]), { status: 200, headers: { "content-type": "image/png" } });
+  globalThis.fetch = async (url, init) => String(url).includes("/s2/favicons") ? answer() : before(url, init);
+
+  check("a logo is only ever asked for by domain", (await get("/icon?d=" + encodeURIComponent("../../x"), as)).status === 400);
+  check("and not by anyone without the passcode", (await get("/icon?d=seatgeek.com")).status === 401);
+  const ok = await get("/icon?d=seatgeek.com", as);
+  check("a company's icon comes back as the image it is",
+    ok.status === 200 && ok.headers.get("content-type") === "image/png" && (await ok.arrayBuffer()).byteLength === 4);
+  check("and the phone keeps it for a week", /max-age=604800/.test(ok.headers.get("cache-control") || ""));
+
+  // An upstream that answers with a page, or with its generic globe under a
+  // 404, must never end up drawn as his company's logo.
+  answer = () => new Response("<html>", { status: 200, headers: { "content-type": "text/html" } });
+  check("anything but an image is refused", (await get("/icon?d=notimage.com", as)).status === 404);
+  answer = () => new Response(new Uint8Array([1]), { status: 404, headers: { "content-type": "image/png" } });
+  check("a missing icon is refused, so the letter shows", (await get("/icon?d=nothing.com", as)).status === 404);
+  globalThis.fetch = before;
+}
+
 console.log();
 if (fails) { console.log(`${fails} failure(s)`); process.exit(1); }
 console.log("worker suite OK");

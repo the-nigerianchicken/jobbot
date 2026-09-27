@@ -37,7 +37,7 @@ export const PAGE = String.raw`<!doctype html>
     --bg:#f7f7f8; --panel:#ffffff; --line:#e7e7ea; --line-2:#d9d9de; --hover:#f3f3f5; --sel:#eeeef1;
     --text:#18181b; --text-2:#52525b; --text-3:#6f6f78;
     --primary:#18181b; --on-primary:#ffffff; --accent:#2563eb;
-    --logo-lit:#ffffff;
+    --logo-light:#ffffff; --logo-dark:#27272a;
     --blue:#2563eb; --amber:#c2410c; --amber-bg:#fff7ed; --green:#15803d; --violet:#6d28d9; --red:#dc2626;
     --font: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --rail: 420px;
@@ -47,7 +47,7 @@ export const PAGE = String.raw`<!doctype html>
       color-scheme: dark;
       --bg:#09090b; --panel:#111114; --line:#232328; --line-2:#2f2f35; --hover:#18181c; --sel:#1d1d22;
       --text:#fafafa; --text-2:#b4b4bc; --text-3:#7d7d86;
-      --primary:#fafafa; --on-primary:#09090b; --accent:#60a5fa; --logo-lit:#f4f4f5;
+      --primary:#fafafa; --on-primary:#09090b; --accent:#60a5fa; --logo-light:#f4f4f5; --logo-dark:var(--panel);
       --blue:#60a5fa; --amber:#fb923c; --amber-bg:#221811; --green:#4ade80; --violet:#a78bfa; --red:#f87171;
     }
   }
@@ -55,14 +55,14 @@ export const PAGE = String.raw`<!doctype html>
     color-scheme: dark;
     --bg:#09090b; --panel:#111114; --line:#232328; --line-2:#2f2f35; --hover:#18181c; --sel:#1d1d22;
     --text:#fafafa; --text-2:#b4b4bc; --text-3:#7d7d86;
-    --primary:#fafafa; --on-primary:#09090b; --accent:#60a5fa; --logo-lit:#f4f4f5;
+    --primary:#fafafa; --on-primary:#09090b; --accent:#60a5fa; --logo-light:#f4f4f5; --logo-dark:var(--panel);
     --blue:#60a5fa; --amber:#fb923c; --amber-bg:#221811; --green:#4ade80; --violet:#a78bfa; --red:#f87171;
   }
   :root[data-theme="dim"] {
     color-scheme: dark;
     --bg:#1c1f24; --panel:#23272e; --line:#323740; --line-2:#3d434d; --hover:#2a2f37; --sel:#303641;
     --text:#e6e8eb; --text-2:#aeb4bd; --text-3:#89909b;
-    --primary:#e6e8eb; --on-primary:#1c1f24; --accent:#7aa7ff; --logo-lit:#f4f4f5;
+    --primary:#e6e8eb; --on-primary:#1c1f24; --accent:#7aa7ff; --logo-light:#f4f4f5; --logo-dark:var(--panel);
     --blue:#7aa7ff; --amber:#f0a868; --amber-bg:#2e2923; --green:#6fcf97; --violet:#b39dff; --red:#f28b82;
   }
   :root[data-accent="blue"]   { --primary:#2563eb; --on-primary:#ffffff; --accent:#2563eb; }
@@ -243,12 +243,19 @@ export const PAGE = String.raw`<!doctype html>
   .logo { flex:none; width:36px; height:36px; border-radius:8px; border:1px solid var(--line);
           background:var(--panel); position:relative; overflow:hidden; display:flex;
           align-items:center; justify-content:center; font-weight:600; font-size:13px; color:var(--text-2); }
+  .logo .mono { font-weight:inherit; }
   .logo img { position:absolute; inset:5px; width:calc(100% - 10px); height:calc(100% - 10px);
-              object-fit:contain; background:transparent; }
-  /* Favicons are drawn for a light browser tab. On a dark tile a dark mark
-     simply disappears - Rivian and Tonal were blank squares - so a tile whose
-     icon has loaded turns light. One with no icon keeps its letter. */
-  .logo.lit { background:var(--logo-lit); border-color:transparent; }
+              object-fit:contain; }
+  /* Each logo as it was drawn, read from its own pixels (see logoKind). One
+     with its own background fills the tile edge to edge, like an app icon. A
+     dark mark on nothing - ITW, RTX - sits on a light tile, the only case that
+     needs one; a white tile under every logo put ZipRecruiter's and SeatGeek's
+     own squares inside a second square. Anything else sits on the usual tile. */
+  .logo.shown .mono { visibility:hidden; }
+  .logo.bleed { border-color:transparent; background:transparent; }
+  .logo.bleed img, .logo.big.bleed img { inset:0; width:100%; height:100%; object-fit:cover; }
+  .logo.mark-dark { background:var(--logo-light); border-color:transparent; }
+  .logo.mark-light { background:var(--logo-dark); }
   .logo.big { width:52px; height:52px; border-radius:11px; font-size:18px; }
   .logo.big img { inset:8px; width:calc(100% - 16px); height:calc(100% - 16px); }
 
@@ -844,13 +851,78 @@ function domainFor(company, url) {
   } catch (e) { /* no usable link */ }
   return name ? name + ".com" : "";
 }
+// How each company's logo is drawn, learned once from its pixels and kept, so
+// the list never re-renders with the wrong tile first. A version in the key
+// lets the rules change without old answers lingering; the v= on the icon's
+// address does the same for the images, which the phone keeps for a week.
+const LOGO_KEY = "jobbot.logos.v2";
+let logoKinds = {};
+try { logoKinds = JSON.parse(localStorage.getItem(LOGO_KEY) || "{}") || {}; } catch (e) { logoKinds = {}; }
+
 function logo(company, url, big) {
   const d = domainFor(company, url);
+  const kind = d ? logoKinds[d] || "" : "none";
   const letter = esc((String(company || "?").trim()[0] || "?").toUpperCase());
-  return '<span class="logo' + (big ? " big" : "") + '">' + letter +
-    (d ? '<img alt="" loading="lazy" src="https://icons.duckduckgo.com/ip3/' + esc(d) +
-      '.ico" data-lit="lit" onload="this.parentNode.classList.add(this.dataset.lit)" onerror="this.remove()">' : "") +
-    "</span>";
+  return '<span class="logo' + (big ? " big" : "") + (kind ? " " + kind : "") + '"><b class="mono">' + letter + "</b>" +
+    (d && kind !== "none" ? '<img alt="" loading="lazy" decoding="async" src="/icon?v=1&d=' + esc(d) +
+      '" data-d="' + esc(d) + '" onload="logoSeen(this)" onerror="this.remove()">' : "") + "</span>";
+}
+
+// What kind of logo this is, from a 32-pixel copy of it:
+//   bleed      it paints its own background to the edges: fill the tile
+//   mark-dark  a mark too dark to see on a dark tile: it gets a light one
+//   mark-light a mark too pale to see on a white tile: it gets a dark one
+//   mark       anything else: the usual tile
+//   none       too small to be sharp on a phone; the letter is cleaner
+function logoKind(img) {
+  if (img.naturalWidth < 32) return "none";
+  try {
+    const n = 32, c = document.createElement("canvas");
+    c.width = c.height = n;
+    const x = c.getContext("2d", { willReadFrequently: true });
+    x.drawImage(img, 0, 0, n, n);
+    const px = x.getImageData(0, 0, n, n).data;
+    const alpha = (i, j) => px[(j * n + i) * 4 + 3];
+    // Just inside each corner and at the middle of each edge: a rounded
+    // square still counts as filled; a circle, or a mark on nothing, does not.
+    const edge = [[3, 3], [n - 4, 3], [3, n - 4], [n - 4, n - 4], [n / 2, 1], [1, n / 2], [n - 2, n / 2], [n / 2, n - 2]];
+    if (edge.every(([i, j]) => alpha(i, j) > 200)) return "bleed";
+    // Which tile the mark can be seen on, by contrast rather than brightness:
+    // saturated red and blue look dark by any simple brightness measure, and
+    // State Farm and GM Financial were put on white tiles they did not need.
+    // A pixel is lost on the dark tile below a luminance of 0.118 (3:1 against
+    // it) and lost on a white one above 0.30. A mark goes on a special tile
+    // only when most of it would be lost on the usual one.
+    const lin = (c) => (c /= 255) <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    let seen = 0, dark = 0, light = 0;
+    for (let k = 0; k < px.length; k += 4) {
+      if (px[k + 3] < 128) continue;
+      const L = 0.2126 * lin(px[k]) + 0.7152 * lin(px[k + 1]) + 0.0722 * lin(px[k + 2]);
+      seen++;
+      if (L < 0.118) dark++;
+      else if (L > 0.30) light++;
+    }
+    if (!seen) return "none";
+    return dark / seen > 0.6 ? "mark-dark" : light / seen > 0.6 ? "mark-light" : "mark";
+  } catch (e) {
+    return "mark";
+  }
+}
+
+function logoSeen(img) {
+  const d = img.dataset.d;
+  let kind = logoKinds[d];
+  if (!kind) {
+    kind = logoKind(img);
+    logoKinds[d] = kind;
+    try { localStorage.setItem(LOGO_KEY, JSON.stringify(logoKinds)); } catch (e) { /* only a convenience */ }
+  }
+  const tile = img.parentNode;
+  if (!tile) return;
+  tile.classList.remove("bleed", "mark", "mark-dark", "mark-light", "none");
+  tile.classList.add(kind);
+  if (kind === "none") { img.remove(); return; }
+  tile.classList.add("shown");
 }
 
 // Some sites escape their descriptions twice, so what reaches us still has

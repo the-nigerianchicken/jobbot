@@ -68,6 +68,7 @@ export default {
       if (path === "/api/export.csv") return exportCsv(env);
       if (path === "/api/answers") return answers(env, url.searchParams.get("folder"));
       if (path === "/file") return file(env, url.searchParams.get("path"), url.searchParams.get("save"));
+      if (path === "/icon") return icon(url.searchParams.get("d"));
       if (path === "/api/command") return command(request, env);
       if (path === "/api/filtered") return filteredList(env);
       if (path === "/api/answer") return editAnswer(request, env);
@@ -1554,6 +1555,40 @@ async function capture(request, env) {
 }
 
 // ?save=Name downloads the file as Name.<ext> instead of opening it.
+// A company's logo, fetched here rather than by his phone.
+//
+// The icons came from a service that returns whatever favicon.ico a site has:
+// 16 to 32 pixels for ZipRecruiter, SeatGeek, ITW, Qumulo and Astranis, so on
+// an iPhone, where the tile is about 78 pixels across, they were stretched
+// three and four times over and blurred - and GM Financial got a generic
+// chevron instead of its mark. This asks for a 128-pixel icon, which for most
+// companies is the one drawn for a home screen.
+//
+// Served from here, the page can also read the pixels (it cannot read another
+// origin's), which is how it knows to put a dark mark on a light tile and let
+// an icon with its own background fill the tile edge to edge. And his phone
+// stops telling a third party which companies he is looking at.
+async function icon(d) {
+  if (!d || d.length > 100 || !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(d)) return new Response(null, { status: 400 });
+  const src = "https://www.google.com/s2/favicons?domain=" + encodeURIComponent(d) + "&sz=128";
+  const cache = typeof caches !== "undefined" && caches.default ? caches.default : null;
+  const key = new Request(src);
+  let hit = cache ? await cache.match(key).catch(() => null) : null;
+  if (!hit) {
+    const r = await fetch(src).catch(() => null);
+    // No icon comes back as a 404 carrying a generic globe; that is not his
+    // company's mark, so the page shows the letter instead.
+    const type = (r && r.headers.get("content-type")) || "";
+    if (!r || !r.ok || !type.startsWith("image/"))
+      return new Response(null, { status: 404, headers: { "cache-control": "private, max-age=86400" } });
+    hit = new Response(await r.arrayBuffer(), { headers: {
+      "content-type": type,
+      "cache-control": "private, max-age=604800" } });
+    if (cache) await cache.put(key, hit.clone()).catch(() => {});
+  }
+  return hit;
+}
+
 async function file(env, path, save) {
   if (!path || path.includes("..")) return json({ error: "bad path" }, 400);
   const body = await repoFile(env, path, true);

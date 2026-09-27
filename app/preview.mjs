@@ -16,8 +16,11 @@ const env = { APP_PASSCODE: "preview", INGEST_TOKEN: "preview", GH_TOKEN: "none"
               REPO: "local/repo", BRANCH: "main", DB: makeDb(files) };
 
 // Anything the worker asks GitHub for is answered from the working copy.
+// Company logos go out for real, so the preview shows what the phone will.
+const realFetch = globalThis.fetch;
 globalThis.fetch = async (url, init = {}) => {
   const u = String(url);
+  if (u.startsWith("https://www.google.com/s2/favicons")) return realFetch(url, init);
   const m = u.match(/\/contents\/(.+?)(\?|$)/);
   if (!m || (init.method && init.method !== "GET"))
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
